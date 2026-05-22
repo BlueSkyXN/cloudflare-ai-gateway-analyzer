@@ -9,6 +9,7 @@ This project stores Cloudflare AI Gateway log metadata in one local SQLite datab
 - Runtime: Python 3.10+
 - Storage: one SQLite file under `local/data/`
 - Runtime dependency: `certifi` for reliable TLS certificate verification
+- Optional dashboard dependencies: `streamlit`, `plotly`, and `pandas`
 - License: not selected yet. No open-source license is granted until a license file is added.
 
 ## Install
@@ -17,6 +18,12 @@ This project stores Cloudflare AI Gateway log metadata in one local SQLite datab
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
+```
+
+Install the local dashboard extra when you want the browser analytics view:
+
+```bash
+pip install -e ".[dashboard]"
 ```
 
 Available CLI entries:
@@ -104,9 +111,12 @@ Query local data:
 
 ```bash
 cf-aigw-analyzer query -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --format table --limit 50
-cf-aigw-analyzer query -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --format json --output logs.json
-cf-aigw-analyzer query -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --format csv --output logs.csv
+mkdir -p local/exports
+cf-aigw-analyzer query -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --format json --output local/exports/logs.json
+cf-aigw-analyzer query -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --format csv --output local/exports/logs.csv
 ```
+
+`query` excludes `raw_json`, `account_id`, and `gateway_id` from shareable outputs by default. Use `--include-raw-json` and `--include-scope` only for private local inspection.
 
 Check status:
 
@@ -114,6 +124,14 @@ Check status:
 cf-aigw-analyzer status
 cf-aigw-analyzer status -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME>
 ```
+
+Start the local analytics dashboard:
+
+```bash
+cf-aigw-analyzer dashboard -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME>
+```
+
+The dashboard binds to `127.0.0.1:8765` by default and reads the SQLite database locally. It does not call Cloudflare or upload data.
 
 ## Documentation
 
@@ -129,4 +147,5 @@ cf-aigw-analyzer status -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME>
 PYTHONPATH=src python3 -m compileall -q src tests
 PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONPATH=src python3 -m cf_aigw_analyzer.cli --help
+PYTHONPATH=src python3 -m cf_aigw_analyzer.cli dashboard --help
 ```

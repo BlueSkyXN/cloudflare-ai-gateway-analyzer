@@ -8,6 +8,12 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+For dashboard development:
+
+```bash
+pip install -e ".[dashboard]"
+```
+
 ## Validation
 
 Run these before committing code changes:
@@ -16,6 +22,7 @@ Run these before committing code changes:
 PYTHONPATH=src python3 -m compileall -q src tests
 PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONPATH=src python3 -m cf_aigw_analyzer.cli --help
+PYTHONPATH=src python3 -m cf_aigw_analyzer.cli dashboard --help
 ```
 
 Run these before committing data-sync behavior changes if credentials are available:
@@ -35,7 +42,10 @@ Do not include real IDs, credentials, or local SQLite files in commit messages.
 src/cf_aigw_analyzer/
   cli.py          CLI commands
   cloudflare.py   Cloudflare API client
+  analytics.py    read-only SQLite analytics
   database.py     SQLite schema and repository
+  dashboard.py    Streamlit launcher
+  dashboard_app.py Streamlit dashboard UI
   filters.py      Cloudflare log filters
   output.py       table/json/csv output
   paths.py        local path resolution
@@ -61,4 +71,3 @@ Before committing:
 git status --short --ignored
 git diff --check
 ```
-

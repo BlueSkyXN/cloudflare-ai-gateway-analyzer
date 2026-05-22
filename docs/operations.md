@@ -10,6 +10,12 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+Install dashboard dependencies only when needed:
+
+```bash
+pip install -e ".[dashboard]"
+```
+
 Use environment variables for credentials:
 
 ```bash
@@ -83,7 +89,22 @@ cf-aigw-analyzer status -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME>
 cf-aigw-analyzer query -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --format table --limit 50
 ```
 
+`query` excludes `raw_json`, `account_id`, and `gateway_id` from JSON/CSV/table outputs by default. Use `--include-raw-json` and `--include-scope` only for private local inspection.
+
+## Local Dashboard
+
+```bash
+cf-aigw-analyzer dashboard -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME>
+```
+
+Defaults:
+
+- host: `127.0.0.1`
+- port: `8765`
+- database: `local/data/cloudflare_ai_gateway.sqlite`
+
+The dashboard reads local SQLite only. It does not sync logs, call Cloudflare, or upload data. Use `--host` only for trusted local-network scenarios; do not expose the dashboard to the public internet.
+
 ## Local Data Protection
 
 Keep `local/` private. It is ignored by git, but it can still contain operational metadata. Do not attach or publish the SQLite database unless you have reviewed and approved the data.
-
