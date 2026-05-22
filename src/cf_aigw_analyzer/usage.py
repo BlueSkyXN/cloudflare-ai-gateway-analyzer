@@ -1,0 +1,182 @@
+"""Provider response usage parsing."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import Any
+
+USAGE_FIELD_NAMES = (
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "cached_tokens",
+    "reasoning_tokens",
+    "cache_write_tokens",
+)
+
+
+@dataclass(slots=True)
+class UsageFields:
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    cached_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    source: str | None = None
+
+    @property
+    def has_numeric_data(self) -> bool:
+        return any(getattr(self, name) is not None for name in USAGE_FIELD_NAMES)
+
+
+def as_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def first_int(*values: Any) -> int | None:
+    for value in values:
+        parsed = as_int(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _decode_payload(payload: Any) -> Any:
+    if not isinstance(payload, str):
+        return payload
+
+    text = payload.strip()
+    if not text:
+        return None
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    events: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        event_payload = line[5:].strip()
+        if not event_payload or event_payload == "[DONE]":
+            continue
+        try:
+            event = json.loads(event_payload)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+
+    if events:
+        return {"streamed_data": events}
+    return None
+
+
+def _add_usage_candidates(candidates: list[tuple[str, dict[str, Any]]], prefix: str, payload: Any) -> None:
+    payload = _decode_payload(payload)
+    if not isinstance(payload, dict):
+        return
+
+    for key in ("usage", "usage_metadata", "usageMetadata"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            candidates.append((f"{prefix}.{key}" if prefix else key, value))
+
+    for child_key in ("result", "response"):
+        child = payload.get(child_key)
+        if child is not None:
+            _add_usage_candidates(candidates, f"{prefix}.{child_key}" if prefix else child_key, child)
+
+    streamed_data = payload.get("streamed_data")
+    if isinstance(streamed_data, list):
+        for item in reversed(streamed_data):
+            if isinstance(item, dict):
+                _add_usage_candidates(candidates, f"{prefix}.streamed_data" if prefix else "streamed_data", item)
+
+
+def _usage_score(usage: dict[str, Any]) -> int:
+    keys = (
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "prompt_tokens",
+        "completion_tokens",
+        "promptTokenCount",
+        "candidatesTokenCount",
+        "totalTokenCount",
+    )
+    return sum(as_int(usage.get(key)) or 0 for key in keys)
+
+
+def parse_usage_from_response(payload: Any) -> UsageFields:
+    """Extract normalized token usage fields from a provider response.
+
+    Supports OpenAI-compatible, Anthropic, DeepSeek and Gemini-style usage
+    objects, including SSE text captured by Cloudflare.
+    """
+
+    payload = _decode_payload(payload)
+    candidates: list[tuple[str, dict[str, Any]]] = []
+    _add_usage_candidates(candidates, "", payload)
+
+    if not candidates:
+        return UsageFields()
+
+    source, usage = max(candidates, key=lambda item: _usage_score(item[1]))
+
+    prompt_details = usage.get("prompt_tokens_details") or usage.get("input_tokens_details") or {}
+    completion_details = usage.get("completion_tokens_details") or usage.get("output_tokens_details") or {}
+    if not isinstance(prompt_details, dict):
+        prompt_details = {}
+    if not isinstance(completion_details, dict):
+        completion_details = {}
+
+    input_tokens = first_int(
+        usage.get("input_tokens"),
+        usage.get("prompt_tokens"),
+        usage.get("promptTokenCount"),
+    )
+    output_tokens = first_int(
+        usage.get("output_tokens"),
+        usage.get("completion_tokens"),
+        usage.get("candidatesTokenCount"),
+    )
+    total_tokens = first_int(
+        usage.get("total_tokens"),
+        usage.get("totalTokenCount"),
+    )
+
+    if input_tokens is None and total_tokens is not None and output_tokens is not None:
+        input_tokens = max(total_tokens - output_tokens, 0)
+    if output_tokens is None and total_tokens is not None and input_tokens is not None:
+        output_tokens = max(total_tokens - input_tokens, 0)
+    if total_tokens is None and input_tokens is not None and output_tokens is not None:
+        total_tokens = input_tokens + output_tokens
+
+    return UsageFields(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
+        cached_tokens=first_int(
+            usage.get("cache_read_input_tokens"),
+            prompt_details.get("cached_tokens"),
+            usage.get("prompt_cache_hit_tokens"),
+            usage.get("cachedContentTokenCount"),
+        ),
+        reasoning_tokens=first_int(
+            completion_details.get("reasoning_tokens"),
+            usage.get("reasoning_tokens"),
+            usage.get("thoughtsTokenCount"),
+        ),
+        cache_write_tokens=first_int(usage.get("cache_creation_input_tokens")),
+        source=source,
+    )
