@@ -1,0 +1,24 @@
+.DS_Store
+
+# local runtime data
+/local/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# packaging / environments
+build/
+dist/
+.venv/
+venv/
+.env

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cloudflare-ai-gateway-analyzer"
+version = "0.2.0"
+description = "SQLite-first Cloudflare AI Gateway log collector and analyzer"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "certifi>=2024.2.2",
+]
+
+[project.scripts]
+cf-aigw-analyzer = "cf_aigw_analyzer.cli:main"
+cloudflare-ai-gateway-analyzer = "cf_aigw_analyzer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
