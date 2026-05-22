@@ -249,7 +249,13 @@ def cmd_query(args: argparse.Namespace) -> int:
             search=args.search,
             limit=args.limit,
         )
-    emit_rows(rows, args.format, args.output)
+    emit_rows(
+        rows,
+        args.format,
+        args.output,
+        include_raw_json=args.include_raw_json,
+        include_scope=args.include_scope,
+    )
     if args.output:
         print(f"已输出 {len(rows)} 条 -> {args.output}")
     else:
@@ -338,6 +344,8 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("--limit", type=int, default=50)
     query.add_argument("--format", choices=("table", "json", "csv"), default="table")
     query.add_argument("--output")
+    query.add_argument("--include-raw-json", action="store_true", help="输出 sanitized raw_json（默认排除）")
+    query.add_argument("--include-scope", action="store_true", help="输出 account_id/gateway_id（默认排除）")
     query.set_defaults(func=cmd_query)
 
     status = subparsers.add_parser("status", help="查看 SQLite 状态")

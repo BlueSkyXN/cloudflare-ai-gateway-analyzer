@@ -18,6 +18,18 @@ BODY_FIELD_KEYS = {
     "response_body",
     "_request_content",
     "_response_content",
+    "body",
+    "content",
+    "contents",
+    "message",
+    "messages",
+    "prompt",
+    "prompts",
+    "input",
+    "inputs",
+    "output",
+    "outputs",
+    "text",
 }
 
 
@@ -53,7 +65,7 @@ def sanitize_log_metadata(value: Any) -> Any:
         return {
             key: sanitize_log_metadata(child)
             for key, child in value.items()
-            if key not in BODY_FIELD_KEYS
+            if str(key).lower() not in BODY_FIELD_KEYS
         }
     if isinstance(value, list):
         return [sanitize_log_metadata(item) for item in value]

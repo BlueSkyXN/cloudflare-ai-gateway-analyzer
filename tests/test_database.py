@@ -31,6 +31,7 @@ class DatabaseTest(unittest.TestCase):
                             "timings": {"total": 2500, "latency": 400},
                             "request": {"messages": ["do not store"]},
                             "response": {"text": "do not store"},
+                            "Messages": [{"content": "also private"}],
                         }
                     ],
                 )
@@ -56,6 +57,7 @@ class DatabaseTest(unittest.TestCase):
                 self.assertEqual(rows[0]["generation_ms"], 2100.0)
                 self.assertAlmostEqual(rows[0]["output_tps"], 9 / 2.1)
                 self.assertNotIn("do not store", rows[0]["raw_json"])
+                self.assertNotIn("also private", rows[0]["raw_json"])
 
                 summary = db.summary("account", "gateway")
                 self.assertEqual(summary["total_logs"], 1)
