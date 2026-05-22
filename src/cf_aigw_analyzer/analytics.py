@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,15 +43,25 @@ def open_readonly_database(path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+def _is_number(value: Any) -> bool:
+    if value is None or isinstance(value, bool):
+        return False
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return not math.isnan(number)
+
+
 def _avg(values: Iterable[float | int | None]) -> float | None:
-    numeric = [float(value) for value in values if value is not None]
+    numeric = [float(value) for value in values if _is_number(value)]
     if not numeric:
         return None
     return sum(numeric) / len(numeric)
 
 
 def _percentile(values: Iterable[float | int | None], percentile: float) -> float | None:
-    numeric = sorted(float(value) for value in values if value is not None)
+    numeric = sorted(float(value) for value in values if _is_number(value))
     if not numeric:
         return None
     if len(numeric) == 1:
@@ -71,7 +82,7 @@ def _ratio(numerator: float | int | None, denominator: float | int | None) -> fl
 
 
 def _sum(values: Iterable[int | float | None]) -> int:
-    return int(sum(int(value) for value in values if value is not None))
+    return int(sum(int(value) for value in values if _is_number(value)))
 
 
 def _where(filters: AnalyticsFilters) -> tuple[str, list[Any]]:

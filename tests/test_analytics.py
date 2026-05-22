@@ -95,6 +95,24 @@ class AnalyticsTest(unittest.TestCase):
 
             self.assertTrue(build_insights(rows))
 
+    def test_summary_ignores_nan_values_from_dataframe_roundtrip(self) -> None:
+        rows = [
+            {
+                "created_at": "2026-05-22T00:00:00Z",
+                "success": True,
+                "input_tokens": float("nan"),
+                "output_tokens": None,
+                "total_tokens": None,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+            }
+        ]
+
+        summary = build_summary(rows)
+
+        self.assertEqual(summary["input_tokens"], 0)
+        self.assertEqual(summary["total_tokens"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
