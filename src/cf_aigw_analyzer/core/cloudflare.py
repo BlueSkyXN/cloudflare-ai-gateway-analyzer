@@ -195,7 +195,7 @@ class CloudflareClient:
                     continue
                 yield row
                 fetched += 1
-                if limit and fetched >= limit:
+                if limit is not None and fetched >= limit:
                     return
 
             result_info = payload.get("result_info") or {}

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import httpx
@@ -71,6 +74,37 @@ def test_status_command_on_fresh_db(project_root: Path) -> None:
     assert '"total_logs": 0' in result.stdout
 
 
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        (["status", "--help"], "Usage: main.py status"),
+        (["version"], "cloudflare-ai-gateway-analyzer"),
+        (["config", "show", "--help"], "Usage: main.py config show"),
+    ],
+)
+def test_main_entrypoint_does_not_rewrite_known_commands(
+    args: list[str],
+    expected: str,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo_root / "src")
+
+    result = subprocess.run(
+        [sys.executable, str(repo_root / "main.py"), *args],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert expected in output
+    assert "Usage: main.py sync" not in output
+
+
 def test_query_requires_gateway(project_root: Path) -> None:
     runner.invoke(app, ["init"])
     result = runner.invoke(app, ["query", "--account-id", "acct"])
@@ -78,6 +112,26 @@ def test_query_requires_gateway(project_root: Path) -> None:
     assert result.exit_code != 0
     output = result.stdout + result.output
     assert "--gateway-id" in output or "BadParameter" in output
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        (["sync", "--limit", "0"], "--limit"),
+        (["sync", "--usage-limit", "0"], "--usage-limit"),
+        (["sync", "--usage-workers", "0"], "--usage-workers"),
+        (["sync-usage", "--limit", "0"], "--limit"),
+        (["sync-usage", "--usage-workers", "0"], "--usage-workers"),
+    ],
+)
+def test_sync_commands_reject_non_positive_limits(
+    project_root: Path,
+    args: list[str],
+    expected: str,
+) -> None:
+    result = runner.invoke(app, args)
+    assert result.exit_code != 0
+    assert expected in (result.stdout + result.output)
 
 
 def test_accounts_uses_mocked_http(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

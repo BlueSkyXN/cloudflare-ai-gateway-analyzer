@@ -146,6 +146,26 @@ async def test_config_is_redacted(client: httpx.AsyncClient) -> None:
     assert body["cloudflare"]["api_token"] == "***"
 
 
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/api/v1/sync/logs", {"account_id": "acct", "gateway_id": "gw", "limit": 0}),
+        ("/api/v1/sync/logs", {"account_id": "acct", "gateway_id": "gw", "usage_limit": 0}),
+        ("/api/v1/sync/logs", {"account_id": "acct", "gateway_id": "gw", "usage_workers": 0}),
+        ("/api/v1/sync/usage", {"account_id": "acct", "gateway_id": "gw", "limit": 0}),
+        ("/api/v1/sync/usage", {"account_id": "acct", "gateway_id": "gw", "workers": 0}),
+    ],
+)
+@pytest.mark.asyncio
+async def test_sync_triggers_reject_non_positive_limits_and_workers(
+    client: httpx.AsyncClient,
+    path: str,
+    payload: dict[str, object],
+) -> None:
+    response = await client.post(path, json=payload)
+    assert response.status_code == 422
+
+
 @pytest.mark.asyncio
 async def test_auth_required_when_token_set(tmp_path: Path) -> None:
     settings = Settings(
