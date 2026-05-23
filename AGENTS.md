@@ -20,6 +20,7 @@
 | `tests/` | `unittest` coverage for parser, database, and paths | No | Add or update tests with behavior changes |
 | `docs/` | Human-facing architecture, operations, security, and development docs | No | Update when behavior, data model, or safety guidance changes |
 | `local/` | Private runtime data and SQLite databases | No | Do not edit for source changes; never stage or commit |
+| `.codex/` | Local Codex runtime entrypoints for shared development agents and skills | No | Do not treat as source; update only when changing local agent/skill exposure |
 | `.gitignore` | Keeps runtime data, SQLite files, and Python artifacts out of git | No | Review before adding new generated or private paths |
 | `README.md` | User-facing quickstart and command overview | No | Update when public CLI usage changes |
 | `pyproject.toml` | Packaging metadata, optional extras, and console scripts | No | Update when dependencies, Python version, optional extras, or entry points change |
@@ -48,6 +49,8 @@ If multiple nested `AGENTS.md` files exist on the target path, read them from sh
 | `PYTHONPATH=src python3 -m unittest discover -s tests` | Unit tests | repo | OK in sandbox |
 | `PYTHONPATH=src python3 -m cf_aigw_analyzer.cli --help` | CLI smoke test without install | repo | OK in sandbox |
 | `cf-aigw-analyzer --help` | Installed CLI smoke test | repo | Requires editable install |
+| `test -L .codex/agents && test -L .codex/skills` | Check local Codex development entrypoints | repo-local runtime | OK in sandbox; local-only and excluded from git |
+| `git check-ignore -v .codex/agents .codex/skills` | Confirm Codex entrypoints are protected from git | repo-local runtime | OK in sandbox |
 | `cf-aigw-analyzer accounts` | List Cloudflare accounts | runtime | Requires network and Cloudflare credentials |
 | `cf-aigw-analyzer gateways -a <ACCOUNT_ID>` | List AI Gateway resources | runtime | Requires network and Cloudflare credentials |
 | `cf-aigw-analyzer sync ...` | Sync log metadata to SQLite | runtime | Requires network and Cloudflare credentials; writes `local/` |
@@ -72,10 +75,12 @@ If multiple nested `AGENTS.md` files exist on the target path, read them from sh
 - Use `unittest` for current tests unless the project is deliberately migrated to another test runner.
 - Public-facing docs should avoid private machine paths, personal account identifiers, real gateway names, and credentials.
 - The project currently has no selected open-source license. Do not add license claims or SPDX headers until the user chooses a license.
+- `.codex/` is local runtime plumbing only. For this development repo, `agents` and `skills` should point at the machine-local shared development suite; keep those entrypoints excluded from git.
 
 ## Security and Privacy Rules
 
 - Never commit `local/`, SQLite databases, WAL/SHM files, exports, `.env`, credentials, or private runtime data.
+- Never commit `.codex/` symlinks or local agent/skill runtime wiring; those paths can reveal machine-local setup and are not part of the public source package.
 - Do not print or paste real Cloudflare tokens or Global API keys into docs, tests, commit messages, or PR text.
 - Treat account IDs, gateway IDs, model usage, cost data, token counts, timestamps, and operational metadata as potentially sensitive.
 - Before commits, run a targeted secret/privacy scan with `rg` and inspect `git status --short --ignored`.
@@ -86,6 +91,7 @@ If multiple nested `AGENTS.md` files exist on the target path, read them from sh
 ## Do Not
 
 - Do not stage or commit anything under `local/`.
+- Do not stage or commit anything under `.codex/`.
 - Do not add a `LICENSE` file or license section that grants reuse until the user chooses an open-source license.
 - Do not push to `origin` unless explicitly asked.
 - Do not commit generated Python artifacts such as `__pycache__/`, `*.egg-info/`, `.pytest_cache/`, or `.DS_Store`.
@@ -104,6 +110,13 @@ PYTHONPATH=src python3 -m compileall -q src tests
 PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONPATH=src python3 -m cf_aigw_analyzer.cli --help
 PYTHONPATH=src python3 -m cf_aigw_analyzer.cli dashboard --help
+```
+
+For local Codex entrypoint changes, verify that the links exist and are ignored by git:
+
+```bash
+test -L .codex/agents && test -L .codex/skills
+git check-ignore -v .codex/agents .codex/skills
 ```
 
 For packaging or CLI entry-point changes, also verify in a temporary virtual environment:
