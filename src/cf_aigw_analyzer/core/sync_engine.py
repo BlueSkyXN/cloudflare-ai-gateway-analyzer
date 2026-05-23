@@ -13,7 +13,7 @@ import httpx
 from cf_aigw_analyzer.config.settings import Settings
 from cf_aigw_analyzer.core.cloudflare import CloudflareApiError, CloudflareClient, LogFilters
 from cf_aigw_analyzer.core.usage_parser import parse_usage_from_response
-from cf_aigw_analyzer.data.db import AnalyzerDatabase
+from cf_aigw_analyzer.data.db import AnalyzerDatabase, transaction
 from cf_aigw_analyzer.data.models import UsageFields
 from cf_aigw_analyzer.models.enums import FetchStatus
 from cf_aigw_analyzer.utils.time import utc_now
@@ -276,24 +276,34 @@ class SyncEngine:
         http_status: int | None,
         error: str | None,
     ) -> None:
-        self.db.usage.upsert(
-            account_id,
-            gateway_id,
-            log_id,
-            usage,
-            status,
-            http_status,
-            error,
-        )
-        if status == FetchStatus.PARSED and (usage.input_tokens or usage.output_tokens):
-            self.db.logs.update_tokens_from_usage(
+        """Persist parsed usage and refresh dependent metrics.
+
+        All writes share one transaction so callers cannot observe a torn state
+        (e.g. usage row present without the metrics refresh). The sync engine
+        invokes this from inside a ``process`` coroutine; the writes here MUST
+        stay synchronous (no ``await``) because all coroutines share the
+        process-wide :class:`sqlite3.Connection`.
+        """
+
+        with transaction(self.db.conn):
+            self.db.usage.upsert(
                 account_id,
                 gateway_id,
                 log_id,
-                usage.input_tokens,
-                usage.output_tokens,
+                usage,
+                status,
+                http_status,
+                error,
             )
-            self.db.metrics.refresh_usage_dependent(account_id, gateway_id, log_id, usage)
+            if status == FetchStatus.PARSED and (usage.input_tokens or usage.output_tokens):
+                self.db.logs.update_tokens_from_usage(
+                    account_id,
+                    gateway_id,
+                    log_id,
+                    usage.input_tokens,
+                    usage.output_tokens,
+                )
+                self.db.metrics.refresh_usage_dependent(account_id, gateway_id, log_id, usage)
 
 
 def chunk(iterable: Iterable[Any], size: int) -> Iterable[list[Any]]:

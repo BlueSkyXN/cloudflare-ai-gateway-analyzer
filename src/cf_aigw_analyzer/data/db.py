@@ -49,9 +49,20 @@ def json_dumps(value: Any) -> str:
 def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     """Wrap a unit of writes in BEGIN/COMMIT (or ROLLBACK on error).
 
-    ``isolation_level=None`` means we're in autocommit; explicit BEGIN gives us
-    a single visible transaction for bulk repository operations.
+    Re-entrant: when an outer transaction is already active on ``conn``, this
+    helper yields without issuing nested ``BEGIN`` (SQLite does not support
+    nested transactions, and the outer caller owns commit/rollback). This lets
+    repositories declare ``with transaction(self.conn):`` for standalone use
+    while still being composable inside :meth:`SyncEngine._persist_usage` which
+    needs an atomic multi-write block.
+
+    Requires ``isolation_level=None`` so Python's DB-API layer does not implicitly
+    open transactions on every ``execute()``.
     """
+
+    if conn.in_transaction:
+        yield conn
+        return
 
     conn.execute("BEGIN")
     try:

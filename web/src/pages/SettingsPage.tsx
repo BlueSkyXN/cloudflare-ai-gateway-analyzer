@@ -1,6 +1,10 @@
+import { useEffect, useState } from "react";
+
 import { useConfig } from "@/hooks/queries";
 import { useFilters } from "@/store/filters";
 import { formatBytes } from "@/utils/format";
+
+const TOKEN_STORAGE_KEY = "cf-aigw-token";
 
 export function SettingsPage() {
   const { data: config } = useConfig();
@@ -11,6 +15,24 @@ export function SettingsPage() {
   const setModel = useFilters((s) => s.setModel);
   const setProvider = useFilters((s) => s.setProvider);
   const setSuccessFilter = useFilters((s) => s.setSuccessFilter);
+
+  const [token, setToken] = useState<string>("");
+  const [tokenSaved, setTokenSaved] = useState<boolean>(false);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (stored) setToken(stored);
+  }, []);
+
+  const persistToken = () => {
+    if (token) {
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+    setTokenSaved(true);
+    window.setTimeout(() => setTokenSaved(false), 1500);
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -28,6 +50,28 @@ export function SettingsPage() {
         ) : (
           <span className="text-text-dim text-sm">No scope selected.</span>
         )}
+      </section>
+
+      <section className="panel-lg flex flex-col gap-3">
+        <header className="text-sm uppercase tracking-wider text-text-dim">Bearer token</header>
+        <p className="text-xs text-text-dim">
+          If the control plane is configured with <code>control.auth_token</code>, set the matching value
+          here. Stored in <code>localStorage</code> and sent as <code>Authorization: Bearer …</code> on
+          every API call.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="password"
+            className="bg-bg-subtle border border-line rounded-md px-2 py-1.5 flex-1 font-mono text-sm"
+            value={token}
+            placeholder="(leave empty for loopback mode)"
+            onChange={(e) => setToken(e.target.value)}
+          />
+          <button className="btn-primary" onClick={persistToken}>
+            Save
+          </button>
+        </div>
+        {tokenSaved && <span className="text-xs text-success">Saved.</span>}
       </section>
 
       <section className="panel-lg flex flex-col gap-3">
