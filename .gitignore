@@ -6,6 +6,9 @@
 *.sqlite-shm
 *.sqlite-wal
 
+# project-local runtime config (gitignored; copy from config-example.yaml)
+/config.yaml
+
 # Python
 __pycache__/
 *.py[cod]
@@ -22,3 +25,8 @@ dist/
 .venv/
 venv/
 .env
+.hatch/
+
+# frontend
+/web/dist/
+/web/node_modules/

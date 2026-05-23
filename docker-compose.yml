@@ -1,0 +1,29 @@
+services:
+  cf-aigw:
+    build: .
+    image: cf-aigw-analyzer:0.3
+    container_name: cf-aigw
+    restart: unless-stopped
+    ports:
+      # Loopback bind by default. Change the left side to 0.0.0.0 only on
+      # trusted networks where you have configured CF_AIGW_CONTROL__AUTH_TOKEN.
+      - "127.0.0.1:8765:8765"
+    environment:
+      # Cloudflare credentials must come from your environment / a .env file.
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
+      CF_EMAIL: ${CF_EMAIL:-}
+      CF_API_KEY: ${CF_API_KEY:-}
+      # Project-prefixed overrides use double underscores (pydantic-settings nested delimiter).
+      CF_AIGW_CONTROL__AUTH_TOKEN: ${CF_AIGW_CONTROL__AUTH_TOKEN:-}
+      CF_AIGW_LOGGING__LEVEL: ${CF_AIGW_LOGGING__LEVEL:-INFO}
+    volumes:
+      # Persist SQLite + logs across container restarts.
+      - ./local:/app/local
+      # Optional read-only config override.
+      - ./config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys; r=urllib.request.urlopen('http://127.0.0.1:8765/api/v1/health', timeout=3); sys.exit(0 if r.status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
