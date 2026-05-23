@@ -49,6 +49,7 @@ python cli.py sync -a <ACCOUNT_ID> --gateway-name <GW> --order-by created_at --d
 ```
 
 Sync is idempotent — re-running the same command upserts on `(account_id, gateway_id, log_id)`.
+`--limit` must be a positive integer. Omit it for an uncapped metadata sync.
 
 ## Usage sync
 
@@ -62,12 +63,17 @@ Recovery behaviour:
 - `failed` rows are retried by default (`--no-retry-failed` to skip).
 - `no_usage` rows are not refetched in `--missing-only` mode.
 - Cloudflare 404 (`response body unavailable`) is recorded as `no_usage`, not `failed`.
+- `--limit` must be positive when provided; `--usage-workers` is bounded to `1..64`.
 
 ## Combined sync
 
 ```bash
 python cli.py sync -a <ACCOUNT_ID> --gateway-name <GW> --with-usage --missing-only --usage-workers 8
 ```
+
+Use `--usage-limit` when the follow-up usage backfill should be capped
+separately from metadata sync. In the React Sync page, the single Limit field is
+applied to both metadata and usage when `with usage` is enabled.
 
 ## Querying
 
@@ -117,7 +123,7 @@ npm run dev      # 127.0.0.1:5173 — proxies /api to 8765
 
 ## Triggering sync from the panel
 
-The Sync page (`/sync`) calls `POST /api/v1/sync/logs` and `POST /api/v1/sync/usage`. Jobs run inside the FastAPI worker (no external queue). The page polls `/api/v1/sync/jobs` every 3 seconds while a job is in flight.
+The Sync page (`/sync`) calls `POST /api/v1/sync/logs` and `POST /api/v1/sync/usage`. Jobs run inside the FastAPI worker (no external queue). The page polls `/api/v1/sync/jobs` every 3 seconds while a job is in flight. The page normalizes Limit to a positive integer so `0` never turns into an accidental full sync.
 
 ## Vacuum
 
@@ -138,7 +144,10 @@ docker compose logs -f
 docker compose exec cf-aigw python cli.py status
 ```
 
-The compose file binds to loopback by default. The health probe hits `/api/v1/health` every 30 seconds.
+The compose file binds to loopback by default. The health probe hits
+`/api/v1/health` every 30 seconds. If `CF_AIGW_CONTROL__AUTH_TOKEN` is set, the
+probe sends the matching `Authorization: Bearer <token>` header; `/api/v1/health`
+is not exempt from auth.
 
 To rebuild after pulling new code:
 

@@ -57,9 +57,14 @@ For panel changes:
 
 ```bash
 cd web
-npm run lint    # tsc -b --noEmit
+npm run lint    # tsc --noEmit for app + Vite config
 npm run build
 ```
+
+`npm run lint` and `npm run build` should not emit `vite.config.js`,
+`vite.config.d.ts`, or `*.tsbuildinfo`. Those files are ignored as a defensive
+measure, but their presence after a clean validation run usually means the
+TypeScript scripts regressed to build mode.
 
 ## Project layout
 
@@ -133,6 +138,8 @@ git diff --check
 - Ruff line length 100; ruff format is the only auto-formatter (no Black).
 - Tests use pytest fixtures + `pytest-asyncio` auto mode.
 - React panel uses TypeScript strict mode; no implicit `any`. Imports go through `@/` alias.
+- Keep the `@/` alias aligned in both `web/tsconfig.json` and `web/vite.config.ts`;
+  TypeScript-only path updates are not enough for production builds.
 
 ## Updating dependencies
 

@@ -9,6 +9,13 @@
 - Codex is normally started from the repository root. This file is the startup router.
 - Subdirectory `AGENTS.md` files (when present) are navigation cards; read them before editing under those subtrees.
 - If a future `AGENTS.override.md` appears, pause and confirm with the user before treating it as the new card.
+- When adding a future subdirectory `AGENTS.md`, update the directory map here with when to read it.
+
+## On-demand cat protocol
+
+- Before editing any path whose directory-map row says `Local AGENTS.md: Yes`, read that local card first.
+- If a future `AGENTS.override.md` exists in or above the target path, stop and ask whether to follow the override or revise the instruction layout.
+- Do not create subdirectory cards unless the subtree has distinct invariants, generated/readonly boundaries, or validation commands not covered here.
 
 ## Directory map
 
@@ -38,17 +45,19 @@
 | Command                                                                                                     | Purpose                                                              | Sandbox notes                                                |
 | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------ |
 | `pip install -e ".[dev]"`                                                                                   | Editable install + dev tooling                                       | Needs network unless wheels are cached                       |
-| `PYTHONPATH=src python -m pytest -q`                                                                        | Full unit + integration suite                                        | Offline; <5s on a modern laptop                              |
-| `python -m ruff check src tests scripts cli.py main.py serve.py`                                            | Lint                                                                 | Offline                                                      |
-| `python -m ruff format --check src tests scripts cli.py main.py serve.py`                                   | Format check                                                         | Offline                                                      |
-| `python scripts/seed_sqlite.py --db local/data/cloudflare_ai_gateway.sqlite --count 200`                    | Seed deterministic synthetic data                                    | Offline                                                      |
-| `python scripts/generate_openapi.py --output local/openapi.json`                                            | Dump OpenAPI                                                         | Offline                                                      |
-| `python scripts/check_api.py`                                                                               | Boot FastAPI in-process and exercise GET routes                      | Offline (ASGI transport)                                     |
-| `python scripts/smoke_local.py`                                                                             | Aggregate: ruff + pytest + openapi + api smoke                       | Offline                                                      |
-| `python cli.py --help`                                                                                      | List CLI subcommands                                                 | Offline                                                      |
-| `python cli.py config show`                                                                                 | Print redacted effective configuration                               | Offline                                                      |
-| `python cli.py serve`                                                                                       | Start FastAPI on `127.0.0.1:8765`                                    | Long-running                                                 |
-| `cd web && npm ci && npm run build`                                                                         | Build the panel into `web/dist`                                      | Needs network for first install                              |
+| `PYTHONPATH=src python3 -m pytest -q`                                                                       | Full unit + integration suite                                        | Offline; <5s on a modern laptop                              |
+| `python3 -m ruff check src tests scripts cli.py main.py serve.py`                                           | Lint                                                                 | Offline                                                      |
+| `python3 -m ruff format --check src tests scripts cli.py main.py serve.py`                                  | Format check                                                         | Offline                                                      |
+| `python3 scripts/seed_sqlite.py --db local/data/cloudflare_ai_gateway.sqlite --count 200`                   | Seed deterministic synthetic data                                    | Offline                                                      |
+| `python3 scripts/generate_openapi.py --output local/openapi.json`                                           | Dump OpenAPI to a gitignored local file                              | Offline                                                      |
+| `python3 scripts/check_api.py`                                                                              | Boot FastAPI in-process and exercise GET routes                      | Offline (ASGI transport)                                     |
+| `python3 scripts/smoke_local.py`                                                                            | Aggregate: ruff + pytest + openapi + api smoke                       | Offline                                                      |
+| `python3 cli.py --help`                                                                                     | List CLI subcommands                                                 | Offline                                                      |
+| `python3 cli.py config show`                                                                                | Print redacted effective configuration                               | Offline                                                      |
+| `python3 cli.py serve`                                                                                      | Start FastAPI on `127.0.0.1:8765`                                    | Long-running                                                 |
+| `cd web && npm ci`                                                                                          | Install panel dependencies                                           | Needs network for first install                              |
+| `cd web && npm run lint`                                                                                    | Type-check app + Vite config without emitting JS                     | Offline after deps installed                                 |
+| `cd web && npm run build`                                                                                   | Build the panel into gitignored `web/dist`                           | Offline after deps installed                                 |
 | `docker compose build`                                                                                      | Build the runtime image                                              | Needs network                                                |
 
 ## Global rules
@@ -57,9 +66,12 @@
 - Python 3.10+, ruff line length 100. No Black.
 - Pydantic v2 everywhere (no v1 compat). FastAPI 0.111+. Typer 0.12+. httpx 0.27+. tenacity 8+.
 - React 18 + Vite 5 + TypeScript 5 strict. Tailwind with the dark-by-default theme defined in `web/tailwind.config.js`.
+- Frontend imports may use `@/` for `web/src`; keep `tsconfig.json` paths and `vite.config.ts` alias in sync.
 - All Cloudflare HTTP calls go through `cf_aigw_analyzer.core.http_client.HttpClient`. No new ad-hoc requests/urllib clients.
 - Repositories own all SQL writes. Analytics modules open the DB read-only.
 - Auth is uniform: `control.auth_token` non-empty → every `/api/v1/*` route requires Bearer, including GETs and `/docs`.
+- Sync trigger limits are positive integers only; `usage_workers` / `workers` stay within `1..64`.
+- Docker healthcheck must remain compatible with `CF_AIGW_CONTROL__AUTH_TOKEN`; do not add unauthenticated `/api/v1/health` exemptions.
 - Never persist request/response bodies. The sanitizer runs before any `raw_json` write.
 - `legacy/v0.2/` is read-only reference. Do not edit, even for "obvious" lint fixes.
 
@@ -67,15 +79,16 @@
 
 - **Schema/repository change** → `pytest tests/unit/test_repository.py -v` + `pytest tests/unit/test_analytics.py`.
 - **Parser change** → `pytest tests/unit/test_usage_parser.py` + relevant integration tests.
-- **Route change** → `pytest tests/integration/test_control.py` + `python scripts/generate_openapi.py` (commit the regenerated file when applicable) + `python scripts/check_api.py`.
-- **CLI change** → `pytest tests/integration/test_cli.py` + `python cli.py --help`.
-- **Frontend change** → `cd web && npm run lint && npm run build`. If the change is visible, also boot the panel via `python cli.py serve` and verify in a browser.
+- **Route change** → `pytest tests/integration/test_control.py` + `python3 scripts/generate_openapi.py --output local/openapi.json` + `python3 scripts/check_api.py`; `local/openapi.json` is gitignored unless project policy changes.
+- **CLI change** → `pytest tests/integration/test_cli.py` + `python3 cli.py --help`.
+- **Frontend change** → `cd web && npm run lint && npm run build`. If the change is visible, also boot the panel via `python3 cli.py serve` and verify in a browser.
+- **Docker/compose change** → parse with `docker compose config` when Docker is available; otherwise at least verify YAML parsing and state Docker was unavailable.
 
 If a step cannot run (missing dependency, network unavailable), state that clearly in the final response.
 
 ## Do not
 
-- Do not commit `local/`, `config.yaml`, `web/dist/`, SQLite/WAL files, `.env`, or `legacy/v0.2/` edits.
+- Do not commit `local/`, `config.yaml`, `web/dist/`, `web/node_modules/`, SQLite/WAL/SHM files, `.env`, TypeScript build info, Vite emitted config JS/DTS, or `legacy/v0.2/` edits.
 - Do not bypass `core.sanitizer.sanitize_log_metadata` for any reason.
 - Do not introduce a new dashboard process. The only UI surface is `web/` + FastAPI.
 - Do not add a license claim. Licensing decision is the user's.

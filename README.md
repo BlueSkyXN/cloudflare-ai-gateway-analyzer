@@ -93,13 +93,14 @@ PYTHONPATH=src python3 -m pytest -q
 python3 -m ruff check src tests scripts cli.py main.py serve.py
 python3 scripts/smoke_local.py
 python3 scripts/generate_openapi.py --output local/openapi.json
+cd web && npm run lint && npm run build
 ```
 
 ## 项目状态
 
 v0.3 alpha：
 
-- 78 单元 + 集成测试覆盖 data / core / analytics / cli / control
+- 92 单元 + 集成测试覆盖 data / core / analytics / cli / control
 - OpenAPI 17 个路径（含 `/api/v1/sync/jobs/*` 异步任务接口）
 - 前端骨架完成，待 `npm ci` + `npm run build` 才可生产托管
 
