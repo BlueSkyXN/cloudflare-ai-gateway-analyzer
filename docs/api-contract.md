@@ -3,7 +3,7 @@
 The FastAPI control plane mounts everything under `/api/v1`. OpenAPI is generated automatically and exported by:
 
 ```bash
-python scripts/generate_openapi.py --output local/openapi.json
+python3 scripts/generate_openapi.py --output local/openapi.json
 ```
 
 ## Authentication

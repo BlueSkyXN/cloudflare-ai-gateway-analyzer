@@ -117,7 +117,7 @@ For panel development:
 
 ```bash
 cd web
-npm ci
+npm install
 npm run dev      # 127.0.0.1:5173 — proxies /api to 8765
 ```
 

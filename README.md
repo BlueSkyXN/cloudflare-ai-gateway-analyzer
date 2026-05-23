@@ -63,7 +63,7 @@ python cli.py status
 
 ```bash
 cd web
-npm ci          # 首次安装
+npm install     # 首次安装；生成 lockfile 后可改用 npm ci
 npm run dev     # http://127.0.0.1:5173，自动代理 /api → 8765
 npm run build   # 产出 web/dist/，由 FastAPI 静态托管
 ```
@@ -102,6 +102,6 @@ v0.3 alpha：
 
 - 92 单元 + 集成测试覆盖 data / core / analytics / cli / control
 - OpenAPI 17 个路径（含 `/api/v1/sync/jobs/*` 异步任务接口）
-- 前端骨架完成，待 `npm ci` + `npm run build` 才可生产托管
+- 前端骨架完成，待 `npm install` + `npm run build` 才可生产托管
 
 `legacy/v0.2/` 保留了上一版完整源码作为参考，不再维护。
