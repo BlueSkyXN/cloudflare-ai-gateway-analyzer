@@ -1,130 +1,149 @@
 # Data Model
 
-The default SQLite database path is:
+The analyzer stores all observed scopes in a single SQLite database (default path: `./local/data/cloudflare_ai_gateway.sqlite`). Tables share `(account_id, gateway_id, log_id)` so every read is explicitly scoped.
 
-```text
-local/data/cloudflare_ai_gateway.sqlite
-```
+## Schema version
 
-All accounts and gateways share this single database. The primary log identity is:
-
-```text
-(account_id, gateway_id, log_id)
-```
+`PRAGMA user_version = 3`. The `migrations` table records the applied version history with timestamps. Future schema changes should add an entry to `cf_aigw_analyzer.data.migrations.MIGRATIONS` and bump `SCHEMA_VERSION`.
 
 ## Tables
 
+### `migrations`
+
+| Column        | Type    | Notes                            |
+| ------------- | ------- | -------------------------------- |
+| `version`     | INTEGER | Primary key.                     |
+| `applied_at`  | TEXT    | ISO 8601 UTC.                    |
+
 ### `gateways`
 
-Stores gateway metadata discovered from Cloudflare.
+Cached Cloudflare gateway metadata.
 
-Primary key:
-
-```text
-(account_id, gateway_id)
-```
-
-Important columns:
-
-- `account_id`
-- `gateway_id`
-- `name`
-- `collect_logs`
-- `raw_json`
-- `fetched_at`
+| Column          | Type    | Notes                                            |
+| --------------- | ------- | ------------------------------------------------ |
+| `account_id`    | TEXT    | Part of composite primary key.                   |
+| `gateway_id`    | TEXT    | Part of composite primary key.                   |
+| `name`          | TEXT    | Gateway display name.                            |
+| `collect_logs`  | INTEGER | 0/1; null when Cloudflare did not return it.     |
+| `raw_json`      | TEXT    | Sanitized gateway payload.                       |
+| `fetched_at`    | TEXT    | ISO 8601 UTC.                                    |
 
 ### `logs`
 
-Stores one row per Cloudflare AI Gateway log metadata record.
+Sanitized log metadata. **Does not store request/response body content.**
 
-Primary key:
+Primary key: `(account_id, gateway_id, log_id)`.
 
-```text
-(account_id, gateway_id, log_id)
-```
+| Column         | Type    | Notes                                            |
+| -------------- | ------- | ------------------------------------------------ |
+| `created_at`   | TEXT    | ISO 8601 from Cloudflare.                        |
+| `provider`     | TEXT    | e.g. `openai`, `anthropic`.                      |
+| `model`        | TEXT    | Provider model identifier.                       |
+| `model_type`   | TEXT    | `chat`, `image`, etc.                            |
+| `success`      | INTEGER | 0/1/null.                                        |
+| `cached`       | INTEGER | 0/1/null.                                        |
+| `status_code`  | INTEGER | Upstream HTTP status.                            |
+| `cost_usd`     | REAL    | Cloudflare-reported USD cost.                    |
+| `tokens_in`    | INTEGER | From log metadata; back-filled from usage.       |
+| `tokens_out`   | INTEGER | Same.                                            |
+| `synced_at`    | TEXT    | When the row was last written.                   |
 
-This table stores metadata fields such as:
+Indexes:
 
-- `created_at`
-- `provider`
-- `model`
-- `model_type`
-- `success`
-- `cached`
-- `status_code`
-- `cost_usd`
-- `tokens_in`
-- `tokens_out`
-- `raw_json`
-- `synced_at`
+- `idx_logs_scope_time(account_id, gateway_id, created_at DESC)`
+- `idx_logs_provider_model(account_id, gateway_id, provider, model)`
+- `idx_logs_global_time(created_at DESC)` — new in v0.3, accelerates cross-scope analytics
 
-`raw_json` is sanitized before storage. Request and response body-like keys are removed recursively, including common message, prompt, content, input, output, and text keys.
+### `logs_raw`
+
+Sanitized JSON for the log. Separated from `logs` so the hot metadata table stays narrow.
+
+| Column        | Type | Notes                                |
+| ------------- | ---- | ------------------------------------ |
+| `account_id`  | TEXT | Part of composite primary key.       |
+| `gateway_id`  | TEXT | Part of composite primary key.       |
+| `log_id`      | TEXT | Part of composite primary key.       |
+| `raw_json`    | TEXT | Sanitized JSON (no body fields).     |
+| `updated_at`  | TEXT | When the snapshot was refreshed.     |
+
+`ON DELETE CASCADE` keeps `logs_raw` in sync with `logs`.
 
 ### `log_usage`
 
-Stores parsed usage data in a 1:1 relationship with `logs`.
+Parsed token usage per log. 1:1 with `logs`.
 
-Primary key:
+| Column                | Type    | Notes                                                                                                                             |
+| --------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `input_tokens`        | INTEGER | Best-effort across providers.                                                                                                     |
+| `output_tokens`       | INTEGER |                                                                                                                                   |
+| `total_tokens`        | INTEGER |                                                                                                                                   |
+| `cached_tokens`       | INTEGER | OpenAI `cached_tokens`, Anthropic `cache_read_input_tokens`, Gemini `cachedContentTokenCount`.                                    |
+| `reasoning_tokens`    | INTEGER | OpenAI / Anthropic / Gemini equivalents.                                                                                          |
+| `cache_write_tokens`  | INTEGER | Anthropic `cache_creation_input_tokens`.                                                                                          |
+| `source`              | TEXT    | Where in the payload the usage object came from (e.g. `usage`, `result.usage`, `streamed_data.usage`).                           |
+| `fetch_status`        | TEXT    | `parsed` / `no_usage` / `failed`. Enforced via `CHECK` constraint.                                                                |
+| `http_status_code`    | INTEGER | Last Cloudflare response status.                                                                                                  |
+| `error_message`       | TEXT    | Optional human-readable error from the fetch attempt.                                                                             |
 
-```text
-(account_id, gateway_id, log_id)
-```
-
-Important columns:
-
-- `input_tokens`
-- `output_tokens`
-- `total_tokens`
-- `cached_tokens`
-- `reasoning_tokens`
-- `cache_write_tokens`
-- `source`
-- `fetch_status`
-- `http_status_code`
-- `error_message`
-
-`fetch_status` values:
-
-- `parsed`: usage fields were found.
-- `no_usage`: response was available but no usable usage object was found, or Cloudflare returned response-body-unavailable semantics.
-- `failed`: the fetch failed in a way worth retrying.
+Index: `idx_usage_scope_status(account_id, gateway_id, fetch_status)`.
 
 ### `log_metrics`
 
-Stores derived per-log metrics in a 1:1 relationship with `logs`.
+Per-log derived metrics. Recomputed on log upsert and on usage upsert (for TPS / visible-token columns).
 
-Important columns:
+| Column                  | Type | Notes                                                  |
+| ----------------------- | ---- | ------------------------------------------------------ |
+| `duration_ms`           | REAL | From log `duration` field.                             |
+| `latency_ms`            | REAL | From timings.latency.                                  |
+| `total_ms`              | REAL | From timings.total or duration fallback.               |
+| `generation_ms`         | REAL | `total_ms - latency_ms` clipped to 0.                  |
+| `output_tps`            | REAL | `output_tokens / (generation_ms / 1000)`.              |
+| `ms_per_output_token`   | REAL | `generation_ms / output_tokens`.                       |
+| `visible_output_tokens` | INTEGER | `output_tokens - reasoning_tokens` (floor 0).        |
+| `visible_output_tps`    | REAL | Visible-token TPS using `generation_ms`.               |
 
-- `duration_ms`
-- `latency_ms`
-- `total_ms`
-- `generation_ms`
-- `output_tps`
-- `ms_per_output_token`
-- `visible_output_tokens`
-- `visible_output_tps`
-- `computed_at`
+Index: `idx_metrics_scope(account_id, gateway_id)`.
 
 ### `sync_runs`
 
-Stores sync run summaries for operational visibility.
+Audit log of every sync invocation (CLI or HTTP).
 
-## Analytics Layer
+| Column              | Type    | Notes                                       |
+| ------------------- | ------- | ------------------------------------------- |
+| `run_id`            | INTEGER | Auto-increment primary key.                 |
+| `account_id`        | TEXT    | Nullable for global ops.                    |
+| `gateway_id`        | TEXT    | Nullable.                                   |
+| `mode`              | TEXT    | `sync` / `sync-usage` / `seed`.             |
+| `params_json`       | TEXT    | Stable JSON of filters + flags.             |
+| `logs_count`        | INTEGER |                                             |
+| `usage_fetched`     | INTEGER |                                             |
+| `usage_parsed`      | INTEGER |                                             |
+| `usage_no_usage`    | INTEGER |                                             |
+| `usage_failed`      | INTEGER |                                             |
+| `started_at`        | TEXT    | ISO 8601 UTC.                               |
+| `finished_at`       | TEXT    | ISO 8601 UTC.                               |
 
-The local dashboard uses read-only joins over `logs`, `log_usage`, and `log_metrics`.
+Index: `idx_sync_runs_scope_time(account_id, gateway_id, started_at DESC)`.
 
-Primary derived views:
+## PRAGMAs
 
-- summary totals: requests, success rate, token totals, cache ratio, average and percentile latency, average TPS.
-- hourly time series: requests, RPM, TPM, latency, output TPS, and visible output TPS.
-- model comparison: request count, success rate, token totals, cache ratio, latency percentiles, and TPS by model.
-- context buckets: input token ranges `<1k`, `1k-10k`, `10k-100k`, `100k-500k`, and `500k+`.
-- recent events: metadata, usage, and metrics only; no `raw_json`.
+```sql
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA busy_timeout = 5000;
+PRAGMA temp_store = MEMORY;
+PRAGMA mmap_size = 268435456; -- 256 MB memory mapping for read-heavy workloads
+```
 
-Token fields prefer `log_usage`; if usage is missing, analytics falls back to `logs.tokens_in` and `logs.tokens_out` where available.
+## Migration policy
 
-## Privacy Boundary
+- The current schema is v3. v0.2 schema (v2) has no upgrade path; you must re-sync from Cloudflare.
+- New columns: add a migration handler in `migrations.MIGRATIONS` keyed by the new `SCHEMA_VERSION`. Handlers must be idempotent.
+- Index changes: emit `CREATE INDEX IF NOT EXISTS` in the migration. Drop with care; pre-existing index names are owned by older versions.
 
-The database is local runtime data. It may contain account IDs, gateway IDs, model usage, costs, token counts, timing data, and other operational metadata. Keep it under `local/` and do not commit or upload it.
+## Backups & VACUUM
 
-`query` and dashboard event tables do not expose `raw_json` by default. Treat all exports as private unless reviewed.
+- WAL is enabled by default. Copying the database file while the analyzer is running requires `sqlite3 file.sqlite ".backup"` or stopping the process.
+- `python cli.py vacuum` rebuilds the file when it grows after lots of upserts.
+- All tables can be dropped and rebuilt safely: the analyzer never depends on schema state beyond what `migrations.apply_migrations` ensures.

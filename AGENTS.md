@@ -2,159 +2,93 @@
 
 ## Purpose
 
-`cloudflare-ai-gateway-analyzer` is a Python CLI that collects Cloudflare AI Gateway log metadata into one local SQLite database, extracts token usage from response payloads, and exposes local query/export plus a local-only analytics dashboard.
+`cloudflare-ai-gateway-analyzer` is a Python 3.10+ tool that pulls Cloudflare AI Gateway log metadata into a single SQLite file, parses provider response usage, and serves a FastAPI control plane plus a React/Vite/TypeScript panel for local analytics.
 
-## Codex Startup Behavior
+## Codex startup behavior
 
-- Codex is expected to start from the repository root.
-- This root `AGENTS.md` is the primary startup instruction for this repository.
-- There are currently no child `AGENTS.md` files. If one is added later, read it before editing files under that subtree.
-- If a future directory contains `AGENTS.override.md`, stop and ask the user before changing the ordinary `AGENTS.md` strategy for that same directory.
-- Do not infer commands from habits. Use commands listed here or confirmed from `pyproject.toml`, `requirements.txt`, `README.md`, or `docs/`.
+- Codex is normally started from the repository root. This file is the startup router.
+- Subdirectory `AGENTS.md` files (when present) are navigation cards; read them before editing under those subtrees.
+- If a future `AGENTS.override.md` appears, pause and confirm with the user before treating it as the new card.
 
-## Directory Map
+## Directory map
 
-| Path | Responsibility | Local AGENTS.md | Read when |
-|---|---|---:|---|
-| `src/cf_aigw_analyzer/` | Python package, CLI, analytics, and local dashboard implementation | No | Always inspect relevant modules before code changes |
-| `tests/` | `unittest` coverage for parser, database, and paths | No | Add or update tests with behavior changes |
-| `docs/` | Human-facing architecture, operations, security, and development docs | No | Update when behavior, data model, or safety guidance changes |
-| `local/` | Private runtime data and SQLite databases | No | Do not edit for source changes; never stage or commit |
-| `.codex/` | Local Codex runtime entrypoints for shared development agents and skills | No | Do not treat as source; update only when changing local agent/skill exposure |
-| `.gitignore` | Keeps runtime data, SQLite files, and Python artifacts out of git | No | Review before adding new generated or private paths |
-| `README.md` | User-facing quickstart and command overview | No | Update when public CLI usage changes |
-| `pyproject.toml` | Packaging metadata, optional extras, and console scripts | No | Update when dependencies, Python version, optional extras, or entry points change |
-| `requirements.txt` | Runtime dependency mirror for simple installs | No | Keep aligned with `pyproject.toml` runtime dependencies |
-| `requirements-dashboard.txt` | Optional dashboard dependency mirror | No | Keep aligned with `pyproject.toml` `dashboard` extra |
+| Path                                | Responsibility                                                                                   | Local AGENTS.md | Read when                                                                  |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------ | --------------: | -------------------------------------------------------------------------- |
+| `cli.py`, `main.py`, `serve.py`     | Top-level entry points (Typer + sync + serve)                                                    | No              | When changing CLI surface or packaging                                     |
+| `src/cf_aigw_analyzer/cli/`         | Typer subcommands (split per file)                                                               | No              | When adding/altering subcommands or flags                                  |
+| `src/cf_aigw_analyzer/config/`      | Pydantic Settings, YAML loader, template renderer, redactor                                      | No              | When changing config schema, env precedence, or redaction                  |
+| `src/cf_aigw_analyzer/core/`        | httpx-based Cloudflare client, retry policy, parsers, sync engine                                | No              | When touching HTTP behaviour, retries, usage parsing, or sync orchestration |
+| `src/cf_aigw_analyzer/data/`        | SQLite schema, migrations, repositories, row models                                              | No              | Before any DB schema, index, or repository contract change                 |
+| `src/cf_aigw_analyzer/analytics/`   | Read-only SQL aggregations (summary, timeseries, models, context buckets, events, insights)     | No              | When changing aggregation logic or filter semantics                        |
+| `src/cf_aigw_analyzer/control/`     | FastAPI app, routes, schemas, auth, lifespan, static panel hosting, async job registry          | No              | When adding routes, changing schemas, or modifying auth                    |
+| `src/cf_aigw_analyzer/models/`      | Shared enums (`FetchStatus`, `OutputFormat`, `LogFormat`)                                       | No              | When adding new domain enums                                               |
+| `src/cf_aigw_analyzer/utils/`       | Console helpers, time/path utilities                                                             | No              | When introducing utility primitives                                        |
+| `web/`                              | React 18 + Vite + TypeScript + ECharts + Tailwind panel                                          | No              | When changing the frontend (pages, hooks, types, theme)                    |
+| `tests/unit/`                       | Pure-Python unit tests (offline, deterministic)                                                  | No              | When adding tests for parsers, repositories, analytics, config             |
+| `tests/integration/`                | CLI + ASGI + sync-engine integration tests using `httpx.MockTransport`                           | No              | When adding tests that span CLI ↔ DB ↔ control plane                       |
+| `scripts/`                          | `seed_sqlite.py`, `smoke_local.py`, `generate_openapi.py`, `check_api.py`                       | No              | When adding new operational/CI helper scripts                              |
+| `docs/`                             | User + contributor documentation                                                                 | No              | When user-visible behaviour or interfaces change                           |
+| `Dockerfile`, `docker-compose.yml`, `entrypoint.sh` | Container build + runtime                                                            | No              | When changing the deployment surface                                       |
+| `local/`                            | Gitignored runtime data (SQLite, openapi.json, refactor notes, task tracker, review reports)    | No              | Do not commit. Inspect read-only.                                          |
+| `legacy/v0.2/`                      | Historical v0.2 source (Streamlit dashboard, urllib client). Reference only.                     | No              | **Do not modify.** Read for context only.                                  |
+| `config-example.yaml`, `.env.example` | Public configuration templates                                                                 | No              | Update together with schema changes                                        |
 
-## On-demand Cat Protocol
+## Confirmed commands
 
-Before editing a subtree that later gains a local `AGENTS.md`, read it with:
+| Command                                                                                                     | Purpose                                                              | Sandbox notes                                                |
+| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `pip install -e ".[dev]"`                                                                                   | Editable install + dev tooling                                       | Needs network unless wheels are cached                       |
+| `PYTHONPATH=src python -m pytest -q`                                                                        | Full unit + integration suite                                        | Offline; <5s on a modern laptop                              |
+| `python -m ruff check src tests scripts cli.py main.py serve.py`                                            | Lint                                                                 | Offline                                                      |
+| `python -m ruff format --check src tests scripts cli.py main.py serve.py`                                   | Format check                                                         | Offline                                                      |
+| `python scripts/seed_sqlite.py --db local/data/cloudflare_ai_gateway.sqlite --count 200`                    | Seed deterministic synthetic data                                    | Offline                                                      |
+| `python scripts/generate_openapi.py --output local/openapi.json`                                            | Dump OpenAPI                                                         | Offline                                                      |
+| `python scripts/check_api.py`                                                                               | Boot FastAPI in-process and exercise GET routes                      | Offline (ASGI transport)                                     |
+| `python scripts/smoke_local.py`                                                                             | Aggregate: ruff + pytest + openapi + api smoke                       | Offline                                                      |
+| `python cli.py --help`                                                                                      | List CLI subcommands                                                 | Offline                                                      |
+| `python cli.py config show`                                                                                 | Print redacted effective configuration                               | Offline                                                      |
+| `python cli.py serve`                                                                                       | Start FastAPI on `127.0.0.1:8765`                                    | Long-running                                                 |
+| `cd web && npm ci && npm run build`                                                                         | Build the panel into `web/dist`                                      | Needs network for first install                              |
+| `docker compose build`                                                                                      | Build the runtime image                                              | Needs network                                                |
 
-```bash
-cat <path>/AGENTS.md
-```
+## Global rules
 
-If multiple nested `AGENTS.md` files exist on the target path, read them from shallow to deep before making changes. The closest file to the edited path wins on conflicts.
+- Default communication is Chinese; code, paths, commands, API names stay English.
+- Python 3.10+, ruff line length 100. No Black.
+- Pydantic v2 everywhere (no v1 compat). FastAPI 0.111+. Typer 0.12+. httpx 0.27+. tenacity 8+.
+- React 18 + Vite 5 + TypeScript 5 strict. Tailwind with the dark-by-default theme defined in `web/tailwind.config.js`.
+- All Cloudflare HTTP calls go through `cf_aigw_analyzer.core.http_client.HttpClient`. No new ad-hoc requests/urllib clients.
+- Repositories own all SQL writes. Analytics modules open the DB read-only.
+- Auth is uniform: `control.auth_token` non-empty → every `/api/v1/*` route requires Bearer, including GETs and `/docs`.
+- Never persist request/response bodies. The sanitizer runs before any `raw_json` write.
+- `legacy/v0.2/` is read-only reference. Do not edit, even for "obvious" lint fixes.
 
-## Commands
+## Validation policy
 
-| Command | Purpose | Scope | Sandbox notes |
-|---|---|---|---|
-| `python3 -m venv .venv` | Create local virtual environment | repo | Writes `.venv/`, ignored by git |
-| `source .venv/bin/activate` | Activate local virtual environment | repo | Shell-local only |
-| `pip install -e .` | Install package and CLI in editable mode | repo | Needs network if dependencies are missing |
-| `pip install -e ".[dashboard]"` | Install optional dashboard dependencies | repo | Needs network; writes ignored `.venv/` when run inside a venv |
-| `PYTHONPATH=src python3 -m compileall -q src tests` | Syntax/bytecode check | repo | OK in sandbox |
-| `PYTHONPATH=src python3 -m unittest discover -s tests` | Unit tests | repo | OK in sandbox |
-| `PYTHONPATH=src python3 -m cf_aigw_analyzer.cli --help` | CLI smoke test without install | repo | OK in sandbox |
-| `cf-aigw-analyzer --help` | Installed CLI smoke test | repo | Requires editable install |
-| `test -L .codex/agents && test -L .codex/skills` | Check local Codex development entrypoints | repo-local runtime | OK in sandbox; local-only and excluded from git |
-| `git check-ignore -v .codex/agents .codex/skills` | Confirm Codex entrypoints are protected from git | repo-local runtime | OK in sandbox |
-| `cf-aigw-analyzer accounts` | List Cloudflare accounts | runtime | Requires network and Cloudflare credentials |
-| `cf-aigw-analyzer gateways -a <ACCOUNT_ID>` | List AI Gateway resources | runtime | Requires network and Cloudflare credentials |
-| `cf-aigw-analyzer sync ...` | Sync log metadata to SQLite | runtime | Requires network and Cloudflare credentials; writes `local/` |
-| `cf-aigw-analyzer sync-usage ...` | Fetch response usage and parse token data | runtime | Requires network and Cloudflare credentials; writes `local/` |
-| `cf-aigw-analyzer query ...` | Query local SQLite data | runtime | Requires existing local DB; data may be sensitive |
-| `cf-aigw-analyzer status` | Show local DB status | runtime | Requires existing local DB for useful output |
-| `cf-aigw-analyzer dashboard` | Start local analytics dashboard | runtime | Requires dashboard extra; reads local DB; binds to `127.0.0.1` by default |
-| `git diff --check` | Check whitespace errors before commit | repo | OK in sandbox |
-| `git status --short --ignored` | Confirm staged/untracked/ignored boundaries | repo | OK in sandbox |
+- **Schema/repository change** → `pytest tests/unit/test_repository.py -v` + `pytest tests/unit/test_analytics.py`.
+- **Parser change** → `pytest tests/unit/test_usage_parser.py` + relevant integration tests.
+- **Route change** → `pytest tests/integration/test_control.py` + `python scripts/generate_openapi.py` (commit the regenerated file when applicable) + `python scripts/check_api.py`.
+- **CLI change** → `pytest tests/integration/test_cli.py` + `python cli.py --help`.
+- **Frontend change** → `cd web && npm run lint && npm run build`. If the change is visible, also boot the panel via `python cli.py serve` and verify in a browser.
 
-## Global Rules
+If a step cannot run (missing dependency, network unavailable), state that clearly in the final response.
 
-- Keep this as a Python-first local tool. The only approved UI is the optional local Streamlit dashboard; do not introduce hosted services, remote upload, a scheduler daemon, or another frontend stack unless explicitly requested.
-- Default storage is one SQLite file at `local/data/cloudflare_ai_gateway.sqlite`.
-- Keep all accounts and gateways in the same SQLite database, scoped by `(account_id, gateway_id, log_id)`.
-- `logs` is for sanitized log metadata only.
-- `log_usage` and `log_metrics` are 1:1 side tables keyed by the same log identity.
-- Do not persist request or response body content. The `/response` endpoint is used only for usage parsing.
-- `analytics.py` and dashboard views must read SQLite without Cloudflare network calls.
-- `query` output excludes `raw_json`, `account_id`, and `gateway_id` by default. Treat `--include-raw-json` and `--include-scope` as private-inspection flags.
-- Keep runtime dependencies minimal. New base dependencies need a clear reason and must be added to both `pyproject.toml` and `requirements.txt`; dashboard-only dependencies belong in the `dashboard` extra and `requirements-dashboard.txt`.
-- Use `unittest` for current tests unless the project is deliberately migrated to another test runner.
-- Public-facing docs should avoid private machine paths, personal account identifiers, real gateway names, and credentials.
-- The project currently has no selected open-source license. Do not add license claims or SPDX headers until the user chooses a license.
-- `.codex/` is local runtime plumbing only. For this development repo, `agents` and `skills` should point at the machine-local shared development suite; keep those entrypoints excluded from git.
+## Do not
 
-## Security and Privacy Rules
+- Do not commit `local/`, `config.yaml`, `web/dist/`, SQLite/WAL files, `.env`, or `legacy/v0.2/` edits.
+- Do not bypass `core.sanitizer.sanitize_log_metadata` for any reason.
+- Do not introduce a new dashboard process. The only UI surface is `web/` + FastAPI.
+- Do not add a license claim. Licensing decision is the user's.
+- Do not run live Cloudflare smoke commands in CI/tests. Live validation belongs in `scripts/` with explicit credential checks.
+- Do not regress to urllib / Streamlit / threadpool sync.
 
-- Never commit `local/`, SQLite databases, WAL/SHM files, exports, `.env`, credentials, or private runtime data.
-- Never commit `.codex/` symlinks or local agent/skill runtime wiring; those paths can reveal machine-local setup and are not part of the public source package.
-- Do not print or paste real Cloudflare tokens or Global API keys into docs, tests, commit messages, or PR text.
-- Treat account IDs, gateway IDs, model usage, cost data, token counts, timestamps, and operational metadata as potentially sensitive.
-- Before commits, run a targeted secret/privacy scan with `rg` and inspect `git status --short --ignored`.
-- When using credentials for live validation, pass them via environment variables or transient shell context. Do not write them into tracked files.
-- Do not add sample data copied from a real Cloudflare account. Use small synthetic fixtures in tests.
-- Do not expose the dashboard on a public interface. Keep the default loopback bind unless the user explicitly accepts local-network exposure.
+## Commit hygiene
 
-## Do Not
+Focused commits along these axes:
 
-- Do not stage or commit anything under `local/`.
-- Do not stage or commit anything under `.codex/`.
-- Do not add a `LICENSE` file or license section that grants reuse until the user chooses an open-source license.
-- Do not push to `origin` unless explicitly asked.
-- Do not commit generated Python artifacts such as `__pycache__/`, `*.egg-info/`, `.pytest_cache/`, or `.DS_Store`.
-- Do not store full request/response payloads in SQLite for convenience.
-- Do not replace the standard-library Cloudflare HTTP client with a larger framework without a concrete need.
-- Do not add a separate React/Vite frontend to this project unless the Streamlit approach is explicitly rejected.
-- Do not add XLSX support unless the scope changes.
-- Do not broaden live sync commands in tests; unit tests should remain offline and deterministic.
-
-## Validation
-
-For code changes, run:
-
-```bash
-PYTHONPATH=src python3 -m compileall -q src tests
-PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONPATH=src python3 -m cf_aigw_analyzer.cli --help
-PYTHONPATH=src python3 -m cf_aigw_analyzer.cli dashboard --help
-```
-
-For local Codex entrypoint changes, verify that the links exist and are ignored by git:
-
-```bash
-test -L .codex/agents && test -L .codex/skills
-git check-ignore -v .codex/agents .codex/skills
-```
-
-For packaging or CLI entry-point changes, also verify in a temporary virtual environment:
-
-```bash
-python3 -m venv /tmp/cf-aigw-analyzer-venv
-. /tmp/cf-aigw-analyzer-venv/bin/activate
-pip install -e .
-cf-aigw-analyzer --help
-```
-
-For dashboard changes, also verify the optional extra when feasible:
-
-```bash
-pip install -e ".[dashboard]"
-cf-aigw-analyzer dashboard --help
-```
-
-When the dashboard UI changes, start it against a local SQLite database and do a browser smoke test on desktop and mobile-width viewports. Report explicitly if browser validation was skipped.
-
-For live Cloudflare behavior changes, first run small limits:
-
-```bash
-cf-aigw-analyzer accounts
-cf-aigw-analyzer gateways -a <ACCOUNT_ID>
-cf-aigw-analyzer sync -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --limit 10
-cf-aigw-analyzer sync-usage -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --missing-only --limit 10
-```
-
-Live commands require network and Cloudflare credentials. If they are skipped, state that clearly in the final response.
-
-## Commit Boundaries
-
-Prefer focused local commits:
-
-1. Guardrails and packaging (`.gitignore`, `pyproject.toml`, `requirements.txt`).
-2. Implementation and tests (`src/`, `tests/`).
-3. Documentation and agent instructions (`README.md`, `docs/`, `AGENTS.md`).
+1. Guardrails / packaging (`pyproject.toml`, `.gitignore`, requirements files).
+2. Implementation + tests (`src/`, `tests/`).
+3. Documentation + agent instructions (`README.md`, `docs/`, `AGENTS.md`, `CLAUDE.md`, `CHANGELOG.md`).
 
 Before each commit:
 
@@ -163,19 +97,10 @@ git status --short --ignored
 git diff --check
 ```
 
-After staging, inspect staged files with:
+## Notes for future agents
 
-```bash
-git diff --cached --stat
-git diff --cached --name-only
-```
-
-Do not mix private runtime data with source commits.
-
-## Notes for Future Agents
-
-- `certifi` is used because some local Python installations do not have a working default CA chain for Cloudflare API calls.
-- `sync-usage --missing-only` should not repeatedly fetch confirmed `no_usage` rows.
-- Cloudflare response-body-unavailable 404 cases should be recorded as `no_usage`, not permanent `failed`.
-- If the data model changes, update `docs/data-model.md`, tests, and any migration notes together.
-- If dashboard analytics change, keep `analytics.py`, `dashboard_app.py`, tests, README, and docs aligned.
+- `local/refactor/plan.md` documents the v0.3 rewrite plan and decision log.
+- `local/task-tracker.md` tracks the YOLO-mode execution that produced v0.3.
+- `local/copilot-check.md` carries the post-rewrite code review report.
+- `CHANGELOG.md` records the public diff between v0.2 and v0.3.
+- `CLAUDE.md` is project-level guidance for Claude/AI assistants.
