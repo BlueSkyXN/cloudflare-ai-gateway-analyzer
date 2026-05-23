@@ -1,0 +1,51 @@
+# Cloudflare AI Gateway Analyzer — example configuration.
+# Copy to ./config.yaml and fill in values.
+# Environment variables (prefix CF_AIGW_) override this file.
+
+# Cloudflare credentials.
+# Prefer environment variables for secrets: CF_API_TOKEN (recommended),
+# or CF_EMAIL + CF_API_KEY for the legacy Global API Key path.
+cloudflare:
+  api_token: null
+  email: null
+  api_key: null
+  base_url: https://api.cloudflare.com/client/v4
+  timeout: 30.0
+  retries: 3
+
+# Local SQLite storage location.
+# Defaults to ./local/data which is gitignored. Use an absolute path
+# if you want the database outside the repository.
+storage:
+  data_dir: local/data
+  db_filename: cloudflare_ai_gateway.sqlite
+  vacuum_on_close: false
+  wal_checkpoint_interval: 1000
+
+# Cloudflare API pagination + parallel response-usage fetch knobs.
+# Cloudflare caps per_page at 50.
+sync:
+  per_page: 50
+  log_throttle_ms: 200
+  usage_workers: 8
+  usage_batch_size: 50
+  retry_failed: true
+
+# FastAPI control plane and panel hosting.
+# Set auth_token to require Bearer auth on every /api/v1/* route
+# (including read-only GETs). Empty token + loopback host = open.
+control:
+  host: 127.0.0.1
+  port: 8765
+  auth_token: null
+  expose_docs: true
+  cors_origins: []
+  static_dir: web/dist
+  default_account_id: null
+  default_gateway_id: null
+
+# Log level and console format.
+# format: rich | plain | json
+logging:
+  level: INFO
+  format: rich

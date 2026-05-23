@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  font-feature-settings: "cv02", "cv03", "cv04";
+}
+
+.panel {
+  @apply bg-bg-panel border border-line rounded-lg;
+}
+
+.panel-sm {
+  @apply panel p-4;
+}
+
+.panel-lg {
+  @apply panel p-6;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-md border border-line bg-bg-subtle hover:bg-bg-panel transition-colors;
+}
+
+.btn-primary {
+  @apply btn border-accent bg-accent text-bg hover:bg-accent-hover;
+}
+
+.kpi-card {
+  @apply panel px-4 py-3 flex flex-col gap-1;
+}
+
+.kpi-label {
+  @apply text-xs uppercase tracking-wide text-text-dim;
+}
+
+.kpi-value {
+  @apply text-xl font-semibold tabular-nums;
+}
+
+.chip {
+  @apply inline-flex items-center px-2 py-0.5 rounded text-xs border border-line text-text-dim bg-bg-subtle;
+}
+
+.chip-success {
+  @apply chip border-success/40 text-success bg-success/10;
+}
+
+.chip-warning {
+  @apply chip border-warning/40 text-warning bg-warning/10;
+}
+
+.chip-danger {
+  @apply chip border-danger/40 text-danger bg-danger/10;
+}
+
+table.compact {
+  @apply w-full text-sm tabular-nums;
+}
+
+table.compact th {
+  @apply text-left text-xs uppercase tracking-wide text-text-dim font-medium px-2 py-1.5 border-b border-line;
+}
+
+table.compact td {
+  @apply px-2 py-1.5 border-b border-line;
+}
