@@ -30,6 +30,21 @@ DEFAULT_COLUMNS = (
 )
 
 
+def sanitize_output_rows(
+    rows: list[dict[str, Any]],
+    include_raw_json: bool = False,
+    include_scope: bool = False,
+) -> list[dict[str, Any]]:
+    """Remove fields that are useful locally but risky in shareable exports."""
+
+    excluded = set()
+    if not include_raw_json:
+        excluded.add("raw_json")
+    if not include_scope:
+        excluded.update({"account_id", "gateway_id"})
+    return [{key: value for key, value in row.items() if key not in excluded} for row in rows]
+
+
 def _stringify(value: Any) -> str:
     if value is None:
         return ""
@@ -94,7 +109,14 @@ def write_csv(rows: list[dict[str, Any]], output: str | None) -> None:
     writer.writerows(rows)
 
 
-def emit_rows(rows: list[dict[str, Any]], fmt: str, output: str | None = None) -> None:
+def emit_rows(
+    rows: list[dict[str, Any]],
+    fmt: str,
+    output: str | None = None,
+    include_raw_json: bool = False,
+    include_scope: bool = False,
+) -> None:
+    rows = sanitize_output_rows(rows, include_raw_json=include_raw_json, include_scope=include_scope)
     if fmt == "json":
         write_json(rows, output)
     elif fmt == "csv":

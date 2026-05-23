@@ -10,6 +10,7 @@ from typing import Any
 
 from .cloudflare import DEFAULT_BASE_URL, CloudflareApiError, CloudflareClient
 from .database import AnalyzerDatabase
+from .dashboard import run_dashboard
 from .filters import DIRECTION_CHOICES, MAX_PER_PAGE, ORDER_BY_CHOICES, LogFilters
 from .output import emit_rows, print_table
 from .paths import resolve_db_path
@@ -249,7 +250,13 @@ def cmd_query(args: argparse.Namespace) -> int:
             search=args.search,
             limit=args.limit,
         )
-    emit_rows(rows, args.format, args.output)
+    emit_rows(
+        rows,
+        args.format,
+        args.output,
+        include_raw_json=args.include_raw_json,
+        include_scope=args.include_scope,
+    )
     if args.output:
         print(f"已输出 {len(rows)} 条 -> {args.output}")
     else:
@@ -272,6 +279,18 @@ def cmd_vacuum(args: argparse.Namespace) -> int:
         db.vacuum()
     print(f"SQLite VACUUM 完成: {db_path}")
     return 0
+
+
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    db_path = db_path_for(args)
+    return run_dashboard(
+        db_path,
+        host=args.host,
+        port=args.port,
+        account_id=args.account_id,
+        gateway_id=args.gateway_id,
+        gateway_name=args.gateway_name,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -338,6 +357,8 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("--limit", type=int, default=50)
     query.add_argument("--format", choices=("table", "json", "csv"), default="table")
     query.add_argument("--output")
+    query.add_argument("--include-raw-json", action="store_true", help="输出 sanitized raw_json（默认排除）")
+    query.add_argument("--include-scope", action="store_true", help="输出 account_id/gateway_id（默认排除）")
     query.set_defaults(func=cmd_query)
 
     status = subparsers.add_parser("status", help="查看 SQLite 状态")
@@ -350,6 +371,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_storage_args(vacuum)
     add_gateway_arg(vacuum, required=False)
     vacuum.set_defaults(func=cmd_vacuum)
+
+    dashboard = subparsers.add_parser("dashboard", help="启动本地数据分析看板")
+    add_storage_args(dashboard)
+    add_account_arg(dashboard, required=False)
+    add_gateway_selector_args(dashboard, required=False)
+    dashboard.add_argument("--host", default="127.0.0.1", help="监听地址，默认 127.0.0.1")
+    dashboard.add_argument("--port", type=int, default=8765, help="监听端口，默认 8765")
+    dashboard.set_defaults(func=cmd_dashboard)
 
     return parser
 
