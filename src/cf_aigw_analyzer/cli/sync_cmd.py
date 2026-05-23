@@ -24,7 +24,9 @@ def sync(
     account_id: AccountOption = None,
     gateway_id: GatewayIdOption = None,
     gateway_name: GatewayNameOption = None,
-    limit: int = typer.Option(None, "--limit", help="Maximum metadata rows to fetch."),
+    limit: int | None = typer.Option(
+        None, "--limit", min=1, help="Maximum metadata rows to fetch."
+    ),
     order_by: str = typer.Option(None, "--order-by"),
     direction: str = typer.Option(None, "--direction"),
     start_date: str = typer.Option(None, "--start-date"),
@@ -38,8 +40,8 @@ def sync(
     missing_only: bool = typer.Option(False, "--missing-only"),
     refresh_usage: bool = typer.Option(False, "--refresh-usage"),
     no_retry_failed: bool = typer.Option(False, "--no-retry-failed"),
-    usage_workers: int = typer.Option(None, "--usage-workers", min=1, max=64),
-    usage_limit: int = typer.Option(None, "--usage-limit"),
+    usage_workers: int | None = typer.Option(None, "--usage-workers", min=1, max=64),
+    usage_limit: int | None = typer.Option(None, "--usage-limit", min=1),
 ) -> None:
     """Sync Cloudflare AI Gateway log metadata (and optionally response usage)."""
 

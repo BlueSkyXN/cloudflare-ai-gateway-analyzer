@@ -163,7 +163,7 @@ class LogsRepository:
             WHERE {" AND ".join(clauses)}
             ORDER BY l.created_at DESC
         """
-        if limit:
+        if limit is not None:
             sql += " LIMIT ?"
             params.append(limit)
 

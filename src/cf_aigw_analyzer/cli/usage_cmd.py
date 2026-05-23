@@ -28,8 +28,8 @@ def sync_usage(
     missing_only: bool = typer.Option(False, "--missing-only"),
     refresh: bool = typer.Option(False, "--refresh"),
     no_retry_failed: bool = typer.Option(False, "--no-retry-failed"),
-    workers: int = typer.Option(None, "--usage-workers", min=1, max=64),
-    limit: int = typer.Option(None, "--limit"),
+    workers: int | None = typer.Option(None, "--usage-workers", min=1, max=64),
+    limit: int | None = typer.Option(None, "--limit", min=1),
 ) -> None:
     """Fetch response usage for logs that still need it."""
 

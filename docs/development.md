@@ -12,7 +12,7 @@ For the React panel:
 
 ```bash
 cd web
-npm ci
+npm install
 ```
 
 ## Running locally
@@ -35,14 +35,14 @@ Visit `http://127.0.0.1:5173` for the development panel (proxied to `127.0.0.1:8
 
 ## Validation
 
-The canonical pre-commit gate is `scripts/smoke_local.py`. It runs:
+The canonical pre-commit gate is `python3 scripts/smoke_local.py`. It runs:
 
 ```
 ruff check
 ruff format --check
 pytest -q
-scripts/generate_openapi.py
-scripts/check_api.py
+python3 scripts/generate_openapi.py --output local/openapi.json
+python3 scripts/check_api.py
 ```
 
 Individually:
@@ -57,9 +57,14 @@ For panel changes:
 
 ```bash
 cd web
-npm run lint    # tsc -b --noEmit
+npm run lint    # tsc --noEmit for app + Vite config
 npm run build
 ```
+
+`npm run lint` and `npm run build` should not emit `vite.config.js`,
+`vite.config.d.ts`, or `*.tsbuildinfo`. Those files are ignored as a defensive
+measure, but their presence after a clean validation run usually means the
+TypeScript scripts regressed to build mode.
 
 ## Project layout
 
@@ -97,7 +102,7 @@ There are **no** live-network tests by default. If you need to validate against 
 2. Add a router file under `src/cf_aigw_analyzer/control/routes/` and export it from `routes/__init__.py`.
 3. Wire it up in `control/app.build_app`.
 4. Add an integration test that hits the route through `httpx.ASGITransport`.
-5. Re-run `scripts/generate_openapi.py` and commit the updated `local/openapi.json` if you check it in.
+5. Re-run `python3 scripts/generate_openapi.py --output local/openapi.json` for a local API diff. `local/openapi.json` remains gitignored unless the project policy changes.
 
 ## Adding new SQL aggregations
 
@@ -133,6 +138,8 @@ git diff --check
 - Ruff line length 100; ruff format is the only auto-formatter (no Black).
 - Tests use pytest fixtures + `pytest-asyncio` auto mode.
 - React panel uses TypeScript strict mode; no implicit `any`. Imports go through `@/` alias.
+- Keep the `@/` alias aligned in both `web/tsconfig.json` and `web/vite.config.ts`;
+  TypeScript-only path updates are not enough for production builds.
 
 ## Updating dependencies
 

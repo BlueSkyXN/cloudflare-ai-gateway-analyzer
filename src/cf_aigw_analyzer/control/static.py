@@ -40,7 +40,7 @@ PLACEHOLDER_HTML = """<!doctype html>
     <h1>Cloudflare AI Gateway Analyzer</h1>
     <p>Panel is not built yet. Visit <a href="/docs">/docs</a> to explore the API.</p>
     <p>To build the panel, run:</p>
-    <pre><code>cd web && npm ci && npm run build</code></pre>
+    <pre><code>cd web && npm install && npm run build</code></pre>
   </body>
 </html>
 """

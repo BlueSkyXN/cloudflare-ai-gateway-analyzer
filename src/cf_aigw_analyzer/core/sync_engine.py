@@ -156,7 +156,7 @@ class SyncEngine:
                 targets=0, started_at=started_at, finished_at=utc_now(), run_id=run_id
             )
 
-        worker_count = workers or self.settings.sync.usage_workers
+        worker_count = workers if workers is not None else self.settings.sync.usage_workers
         semaphore = asyncio.Semaphore(max(1, worker_count))
         errors: list[str] = []
         counters = SyncUsageResult(targets=len(targets), started_at=started_at)

@@ -16,13 +16,29 @@ if _SRC.is_dir() and str(_SRC) not in sys.path:
 
 from cf_aigw_analyzer.cli import app  # noqa: E402
 
+
+def _registered_top_level_names() -> set[str]:
+    """Return Typer command/group names registered on the shared CLI app."""
+
+    names: set[str] = set()
+    for command in app.registered_commands:
+        if command.name:
+            names.add(command.name)
+        elif command.callback is not None:
+            names.add(command.callback.__name__.replace("_", "-"))
+    for group in app.registered_groups:
+        if group.name:
+            names.add(group.name)
+    return names
+
+
 if __name__ == "__main__":
     # Inject the `sync` subcommand when the user did not specify any other
     # action. Top-level flags like --help / -h / --version must pass through
     # so users still get the full Typer help text from `python main.py --help`.
     passthrough = {"--help", "-h", "--version"}
     first = sys.argv[1] if len(sys.argv) > 1 else ""
-    if first in app.registered_commands or first in passthrough:
+    if first in _registered_top_level_names() or first in passthrough:
         app()
     else:
         sys.argv.insert(1, "sync")

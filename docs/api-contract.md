@@ -3,7 +3,7 @@
 The FastAPI control plane mounts everything under `/api/v1`. OpenAPI is generated automatically and exported by:
 
 ```bash
-python scripts/generate_openapi.py --output local/openapi.json
+python3 scripts/generate_openapi.py --output local/openapi.json
 ```
 
 ## Authentication
@@ -70,6 +70,17 @@ account_id, gateway_id, start_date, end_date, provider, model, success
 | GET    | `/api/v1/sync/jobs/{job_id}`      | Single job status (poll until `status="done"` or `"failed"`).        |
 
 Jobs run inside the FastAPI worker process via `asyncio.create_task`. There is no external broker — this matches the analyzer's single-process design. The registry retains the most recent 100 jobs and drops finished ones beyond that.
+
+Sync trigger numeric constraints are part of the public contract:
+
+- `/sync/logs`: `limit >= 1`, `usage_limit >= 1`, `usage_workers` in `1..64`.
+- `/sync/usage`: `limit >= 1`, `workers` in `1..64`.
+- Omitted limits mean "no explicit cap"; `0` and negative values are rejected with `422`.
+
+When `/sync/logs` is called with `with_usage=true`, clients should pass
+`usage_limit` when they intend the follow-up usage backfill to be capped too.
+The bundled React panel uses the same positive Limit value for both metadata
+sync and usage sync.
 
 ### Config
 

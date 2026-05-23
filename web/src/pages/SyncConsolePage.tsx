@@ -7,6 +7,10 @@ import { useJobs, useStatus, useSyncRuns } from "@/hooks/queries";
 import { useFilters } from "@/store/filters";
 import { formatInt } from "@/utils/format";
 
+function normalizeLimit(value: number): number {
+  return Math.max(1, Math.trunc(value) || 1);
+}
+
 export function SyncConsolePage() {
   const scope = useFilters((s) => s.scope);
   const queryClient = useQueryClient();
@@ -21,12 +25,14 @@ export function SyncConsolePage() {
   const triggerSyncLogs = useMutation({
     mutationFn: () => {
       if (!scope) throw new Error("没有选中 scope");
+      const safeLimit = normalizeLimit(limit);
       return api.triggerSyncLogs({
         account_id: scope.account_id,
         gateway_id: scope.gateway_id,
-        limit,
+        limit: safeLimit,
         with_usage: withUsage,
         missing_only: missingOnly,
+        usage_limit: withUsage ? safeLimit : undefined,
       });
     },
     onSuccess: () => {
@@ -37,11 +43,12 @@ export function SyncConsolePage() {
   const triggerSyncUsage = useMutation({
     mutationFn: () => {
       if (!scope) throw new Error("没有选中 scope");
+      const safeLimit = normalizeLimit(limit);
       return api.triggerSyncUsage({
         account_id: scope.account_id,
         gateway_id: scope.gateway_id,
         missing_only: missingOnly,
-        limit,
+        limit: safeLimit,
       });
     },
     onSuccess: () => {
@@ -79,7 +86,7 @@ export function SyncConsolePage() {
                 type="number"
                 value={limit}
                 min={1}
-                onChange={(e) => setLimit(Number(e.target.value) || 0)}
+                onChange={(e) => setLimit(normalizeLimit(Number(e.target.value)))}
                 className="bg-bg-subtle border border-line rounded-md px-2 py-1.5 w-28"
               />
             </label>

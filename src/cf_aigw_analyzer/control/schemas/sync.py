@@ -4,21 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SyncTriggerRequest(BaseModel):
     account_id: str
     gateway_id: str | None = None
     gateway_name: str | None = None
-    limit: int | None = None
+    limit: int | None = Field(default=None, ge=1)
     with_usage: bool = False
     missing_only: bool = False
     refresh_usage: bool = False
     no_retry_failed: bool = False
-    usage_workers: int | None = None
-    usage_limit: int | None = None
-    filters: dict[str, Any] = {}
+    usage_workers: int | None = Field(default=None, ge=1, le=64)
+    usage_limit: int | None = Field(default=None, ge=1)
+    filters: dict[str, Any] = Field(default_factory=dict)
 
 
 class SyncUsageTriggerRequest(BaseModel):
@@ -28,8 +28,8 @@ class SyncUsageTriggerRequest(BaseModel):
     missing_only: bool = False
     refresh: bool = False
     no_retry_failed: bool = False
-    workers: int | None = None
-    limit: int | None = None
+    workers: int | None = Field(default=None, ge=1, le=64)
+    limit: int | None = Field(default=None, ge=1)
 
 
 class SyncTriggerResponse(BaseModel):
