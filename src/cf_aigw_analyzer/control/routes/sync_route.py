@@ -95,7 +95,13 @@ async def _run_sync_logs(
             filters = LogFilters(
                 per_page=state.settings.sync.per_page, **_coerce_filters(payload.filters)
             )
-            meta = await engine.sync_logs(payload.account_id, gateway, filters, limit=payload.limit)
+            meta = await engine.sync_logs(
+                payload.account_id,
+                gateway,
+                filters,
+                limit=payload.limit,
+                incremental=payload.incremental,
+            )
             updates: dict[str, Any] = {
                 "logs_count": meta.logs_count,
                 "run_id": meta.run_id,

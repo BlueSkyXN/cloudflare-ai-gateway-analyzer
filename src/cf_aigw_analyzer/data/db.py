@@ -109,21 +109,15 @@ class AnalyzerDatabase:
 
     @property
     def logs(self):
-        from cf_aigw_analyzer.data.repository.logs import LogsRepository
+        from cf_aigw_analyzer.data.repository.events import EventRepository
 
-        return LogsRepository(self.conn)
-
-    @property
-    def usage(self):
-        from cf_aigw_analyzer.data.repository.usage import UsageRepository
-
-        return UsageRepository(self.conn)
+        return EventRepository(self.conn)
 
     @property
-    def metrics(self):
-        from cf_aigw_analyzer.data.repository.metrics import MetricsRepository
+    def events(self):
+        from cf_aigw_analyzer.data.repository.events import EventRepository
 
-        return MetricsRepository(self.conn)
+        return EventRepository(self.conn)
 
     @property
     def sync_runs(self):
@@ -132,7 +126,13 @@ class AnalyzerDatabase:
         return SyncRunsRepository(self.conn)
 
     @property
-    def raw(self):
-        from cf_aigw_analyzer.data.repository.raw import RawRepository
+    def sync_state(self):
+        from cf_aigw_analyzer.data.repository.sync_state import SyncStateRepository
 
-        return RawRepository(self.conn)
+        return SyncStateRepository(self.conn)
+
+    @property
+    def sync_locks(self):
+        from cf_aigw_analyzer.data.repository.sync_locks import SyncLocksRepository
+
+        return SyncLocksRepository(self.conn)

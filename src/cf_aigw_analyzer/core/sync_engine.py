@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import uuid
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -82,42 +84,67 @@ class SyncEngine:
         filters: LogFilters,
         *,
         limit: int | None = None,
+        incremental: bool = False,
     ) -> SyncMetadataResult:
+        owner = _lock_owner()
+        self.db.sync_locks.acquire(account_id, gateway_id, "sync", owner)
         started_at = utc_now()
-        batch: list[dict[str, Any]] = []
-        flush_size = max(50, self.settings.sync.usage_batch_size)
-        logs_count = 0
+        try:
+            effective_filters = self._apply_incremental_state(
+                account_id, gateway_id, filters, incremental
+            )
+            batch: list[dict[str, Any]] = []
+            flush_size = max(50, self.settings.sync.usage_batch_size)
+            logs_count = 0
+            latest_created_at: str | None = None
+            latest_log_id: str | None = None
 
-        async for log in self.client.iter_logs(
-            account_id,
-            gateway_id,
-            filters,
-            limit=limit,
-            throttle_ms=self.settings.sync.log_throttle_ms,
-        ):
-            batch.append(log)
-            if len(batch) >= flush_size:
+            async for log in self.client.iter_logs(
+                account_id,
+                gateway_id,
+                effective_filters,
+                limit=limit,
+                throttle_ms=self.settings.sync.log_throttle_ms,
+            ):
+                batch.append(log)
+                latest_created_at, latest_log_id = _choose_latest_seen(
+                    latest_created_at, latest_log_id, log
+                )
+                if len(batch) >= flush_size:
+                    logs_count += self.db.logs.upsert_many(account_id, gateway_id, batch)
+                    batch.clear()
+
+            if batch:
                 logs_count += self.db.logs.upsert_many(account_id, gateway_id, batch)
-                batch.clear()
 
-        if batch:
-            logs_count += self.db.logs.upsert_many(account_id, gateway_id, batch)
-
-        finished_at = utc_now()
-        run_id = self.db.sync_runs.record(
-            account_id,
-            gateway_id,
-            mode="sync",
-            params={**filters.to_query(), "limit": limit},
-            logs_count=logs_count,
-            started_at=started_at,
-        )
-        return SyncMetadataResult(
-            logs_count=logs_count,
-            started_at=started_at,
-            finished_at=finished_at,
-            run_id=run_id,
-        )
+            self.db.sync_state.record_success(
+                account_id,
+                gateway_id,
+                "sync",
+                last_seen_created_at=latest_created_at,
+                last_seen_log_id=latest_log_id,
+            )
+            finished_at = utc_now()
+            run_id = self.db.sync_runs.record(
+                account_id,
+                gateway_id,
+                mode="sync",
+                params={
+                    **effective_filters.to_query(),
+                    "limit": limit,
+                    "incremental": incremental,
+                },
+                logs_count=logs_count,
+                started_at=started_at,
+            )
+            return SyncMetadataResult(
+                logs_count=logs_count,
+                started_at=started_at,
+                finished_at=finished_at,
+                run_id=run_id,
+            )
+        finally:
+            self.db.sync_locks.release(account_id, gateway_id, "sync", owner)
 
     async def sync_usage(
         self,
@@ -130,118 +157,147 @@ class SyncEngine:
         workers: int | None = None,
         limit: int | None = None,
     ) -> SyncUsageResult:
+        owner = _lock_owner()
+        self.db.sync_locks.acquire(account_id, gateway_id, "sync-usage", owner)
         started_at = utc_now()
-        targets = self.db.logs.usage_targets(
-            account_id,
-            gateway_id,
-            missing_only=missing_only,
-            refresh=refresh,
-            retry_failed=retry_failed,
-            limit=limit,
-        )
-        if not targets:
-            run_id = self.db.sync_runs.record(
+        try:
+            targets = self.db.logs.usage_targets(
                 account_id,
                 gateway_id,
-                mode="sync-usage",
-                params={
-                    "missing_only": missing_only,
-                    "refresh": refresh,
-                    "retry_failed": retry_failed,
-                    "limit": limit,
-                },
-                started_at=started_at,
+                missing_only=missing_only,
+                refresh=refresh,
+                retry_failed=retry_failed,
+                limit=limit,
             )
-            return SyncUsageResult(
-                targets=0, started_at=started_at, finished_at=utc_now(), run_id=run_id
-            )
+            if not targets:
+                self.db.sync_state.record_success(account_id, gateway_id, "sync-usage")
+                run_id = self.db.sync_runs.record(
+                    account_id,
+                    gateway_id,
+                    mode="sync-usage",
+                    params={
+                        "missing_only": missing_only,
+                        "refresh": refresh,
+                        "retry_failed": retry_failed,
+                        "limit": limit,
+                    },
+                    started_at=started_at,
+                )
+                return SyncUsageResult(
+                    targets=0, started_at=started_at, finished_at=utc_now(), run_id=run_id
+                )
 
-        worker_count = workers if workers is not None else self.settings.sync.usage_workers
-        semaphore = asyncio.Semaphore(max(1, worker_count))
-        errors: list[str] = []
-        counters = SyncUsageResult(targets=len(targets), started_at=started_at)
+            worker_count = workers if workers is not None else self.settings.sync.usage_workers
+            semaphore = asyncio.Semaphore(max(1, worker_count))
+            errors: list[str] = []
+            counters = SyncUsageResult(targets=len(targets), started_at=started_at)
 
-        async def process(log_id: str) -> None:
-            """Fetch + parse + persist one log's usage.
+            async def process(log_id: str) -> None:
+                """Fetch + parse + persist one log's usage.
 
-            Any unexpected exception is caught and recorded as ``FAILED`` so a
-            single bad row never poisons the rest of the batch. SQLite writes
-            here must remain synchronous (no ``await`` between BEGIN and COMMIT)
-            because all coroutines share the database connection.
-            """
+                Any unexpected exception is caught and recorded as ``FAILED`` so a
+                single bad row never poisons the rest of the batch. SQLite writes
+                here must remain synchronous (no ``await`` between BEGIN and COMMIT)
+                because all coroutines share the database connection.
+                """
 
-            async with semaphore:
-                try:
-                    status, http_status, payload, error = await self._fetch_usage_payload(
-                        account_id, gateway_id, log_id
-                    )
-                    usage = (
-                        parse_usage_from_response(payload) if payload is not None else UsageFields()
-                    )
-                    effective_status = status
-                    if status == FetchStatus.PARSED and not usage.has_numeric_data:
-                        effective_status = FetchStatus.NO_USAGE
-                    self._persist_usage(
-                        account_id,
-                        gateway_id,
-                        log_id,
-                        usage,
-                        effective_status,
-                        http_status,
-                        error,
-                    )
-                    counters.fetched += 1
-                    if effective_status == FetchStatus.PARSED:
-                        counters.parsed += 1
-                    elif effective_status == FetchStatus.NO_USAGE:
-                        counters.no_usage += 1
-                    else:
-                        counters.failed += 1
-                        if error and len(errors) < 20:
-                            errors.append(f"{log_id}: {error}")
-                except Exception as exc:
-                    counters.fetched += 1
-                    counters.failed += 1
-                    if len(errors) < 20:
-                        errors.append(f"{log_id}: {exc!r}")
-                    # Best-effort persist of the failure so the row is not lost.
-                    with contextlib.suppress(Exception):
+                async with semaphore:
+                    try:
+                        status, http_status, payload, error = await self._fetch_usage_payload(
+                            account_id, gateway_id, log_id
+                        )
+                        usage = (
+                            parse_usage_from_response(payload)
+                            if payload is not None
+                            else UsageFields()
+                        )
+                        effective_status = status
+                        if status == FetchStatus.PARSED and not usage.has_numeric_data:
+                            effective_status = FetchStatus.NO_USAGE
                         self._persist_usage(
                             account_id,
                             gateway_id,
                             log_id,
-                            UsageFields(),
-                            FetchStatus.FAILED,
-                            None,
-                            f"unhandled: {exc!r}",
+                            usage,
+                            effective_status,
+                            http_status,
+                            error,
                         )
+                        counters.fetched += 1
+                        if effective_status == FetchStatus.PARSED:
+                            counters.parsed += 1
+                        elif effective_status == FetchStatus.NO_USAGE:
+                            counters.no_usage += 1
+                        else:
+                            counters.failed += 1
+                            if error and len(errors) < 20:
+                                errors.append(f"{log_id}: {error}")
+                    except Exception as exc:
+                        counters.fetched += 1
+                        counters.failed += 1
+                        if len(errors) < 20:
+                            errors.append(f"{log_id}: {exc!r}")
+                        # Best-effort persist of the failure so the row is not lost.
+                        with contextlib.suppress(Exception):
+                            self._persist_usage(
+                                account_id,
+                                gateway_id,
+                                log_id,
+                                UsageFields(),
+                                FetchStatus.FAILED,
+                                None,
+                                f"unhandled: {exc!r}",
+                            )
 
-        try:
-            await asyncio.gather(
-                *(process(log_id) for log_id in targets),
-                return_exceptions=False,
-            )
+            try:
+                await asyncio.gather(
+                    *(process(log_id) for log_id in targets),
+                    return_exceptions=False,
+                )
+            finally:
+                self.db.sync_state.record_success(account_id, gateway_id, "sync-usage")
+                counters.errors = errors
+                counters.finished_at = utc_now()
+                counters.run_id = self.db.sync_runs.record(
+                    account_id,
+                    gateway_id,
+                    mode="sync-usage",
+                    params={
+                        "missing_only": missing_only,
+                        "refresh": refresh,
+                        "retry_failed": retry_failed,
+                        "workers": worker_count,
+                        "limit": limit,
+                    },
+                    usage_fetched=counters.fetched,
+                    usage_parsed=counters.parsed,
+                    usage_no_usage=counters.no_usage,
+                    usage_failed=counters.failed,
+                    started_at=started_at,
+                )
+            return counters
         finally:
-            counters.errors = errors
-            counters.finished_at = utc_now()
-            counters.run_id = self.db.sync_runs.record(
-                account_id,
-                gateway_id,
-                mode="sync-usage",
-                params={
-                    "missing_only": missing_only,
-                    "refresh": refresh,
-                    "retry_failed": retry_failed,
-                    "workers": worker_count,
-                    "limit": limit,
-                },
-                usage_fetched=counters.fetched,
-                usage_parsed=counters.parsed,
-                usage_no_usage=counters.no_usage,
-                usage_failed=counters.failed,
-                started_at=started_at,
-            )
-        return counters
+            self.db.sync_locks.release(account_id, gateway_id, "sync-usage", owner)
+
+    def _apply_incremental_state(
+        self,
+        account_id: str,
+        gateway_id: str,
+        filters: LogFilters,
+        incremental: bool,
+    ) -> LogFilters:
+        if not incremental:
+            return filters
+        if filters.start_date or filters.end_date:
+            raise ValueError("incremental sync cannot be combined with explicit start/end dates")
+        state = self.db.sync_state.get(account_id, gateway_id, "sync")
+        if not state or not state.get("last_seen_created_at"):
+            return filters
+        start_date = _minus_minutes(
+            str(state["last_seen_created_at"]),
+            self.settings.sync.incremental_overlap_minutes,
+        )
+        return replace(filters, start_date=start_date)
 
     async def _fetch_usage_payload(
         self,
@@ -276,17 +332,15 @@ class SyncEngine:
         http_status: int | None,
         error: str | None,
     ) -> None:
-        """Persist parsed usage and refresh dependent metrics.
+        """Persist parsed usage onto the log event fact row.
 
-        All writes share one transaction so callers cannot observe a torn state
-        (e.g. usage row present without the metrics refresh). The sync engine
-        invokes this from inside a ``process`` coroutine; the writes here MUST
-        stay synchronous (no ``await``) because all coroutines share the
-        process-wide :class:`sqlite3.Connection`.
+        The sync engine invokes this from inside a ``process`` coroutine; the
+        writes here MUST stay synchronous (no ``await``) because all coroutines
+        share the process-wide :class:`sqlite3.Connection`.
         """
 
         with transaction(self.db.conn):
-            self.db.usage.upsert(
+            self.db.logs.upsert_usage(
                 account_id,
                 gateway_id,
                 log_id,
@@ -295,15 +349,6 @@ class SyncEngine:
                 http_status,
                 error,
             )
-            if status == FetchStatus.PARSED and (usage.input_tokens or usage.output_tokens):
-                self.db.logs.update_tokens_from_usage(
-                    account_id,
-                    gateway_id,
-                    log_id,
-                    usage.input_tokens,
-                    usage.output_tokens,
-                )
-                self.db.metrics.refresh_usage_dependent(account_id, gateway_id, log_id, usage)
 
 
 def chunk(iterable: Iterable[Any], size: int) -> Iterable[list[Any]]:
@@ -317,3 +362,34 @@ def chunk(iterable: Iterable[Any], size: int) -> Iterable[list[Any]]:
             batch = []
     if batch:
         yield batch
+
+
+def _lock_owner() -> str:
+    return f"sync-engine:{uuid.uuid4().hex}"
+
+
+def _choose_latest_seen(
+    latest_created_at: str | None,
+    latest_log_id: str | None,
+    log: dict[str, Any],
+) -> tuple[str | None, str | None]:
+    created_at = log.get("created_at")
+    log_id = log.get("id") or log.get("log_id")
+    if not isinstance(created_at, str) or not created_at:
+        return latest_created_at, latest_log_id
+    if latest_created_at is None or created_at > latest_created_at:
+        return created_at, str(log_id) if log_id is not None else latest_log_id
+    if created_at == latest_created_at and log_id is not None:
+        latest_log_id = max(latest_log_id or "", str(log_id))
+    return latest_created_at, latest_log_id
+
+
+def _minus_minutes(value: str, minutes: int) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    shifted = parsed.astimezone(timezone.utc) - timedelta(minutes=max(0, minutes))
+    return shifted.strftime("%Y-%m-%dT%H:%M:%SZ")

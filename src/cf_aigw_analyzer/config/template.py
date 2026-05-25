@@ -26,7 +26,8 @@ _SECTION_COMMENTS: dict[str, str] = {
     ),
     "sync": (
         "Cloudflare API pagination + parallel response-usage fetch knobs.\n"
-        "Cloudflare caps per_page at 50."
+        "Cloudflare caps per_page at 50. Incremental sync uses sync_state\n"
+        "with a small overlap window so repeated agent runs are idempotent."
     ),
     "control": (
         "FastAPI control plane and panel hosting.\n"

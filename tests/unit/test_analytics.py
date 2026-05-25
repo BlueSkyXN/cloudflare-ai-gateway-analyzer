@@ -6,16 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from cf_aigw_analyzer.analytics import (
-    AnalyticsFilters,
-    build_context_buckets,
-    build_insights,
-    build_model_stats,
-    build_recent_events,
-    build_summary,
-    build_timeseries,
-    list_gateway_scopes,
-)
+from cf_aigw_analyzer.analytics import AnalyticsFilters, build_analytics, list_gateway_scopes
 from cf_aigw_analyzer.data import AnalyzerDatabase, UsageFields
 from cf_aigw_analyzer.data.db import open_readonly_connection
 from cf_aigw_analyzer.models.enums import FetchStatus
@@ -62,7 +53,7 @@ def populated_db(tmp_path: Path) -> Path:
                 },
             ],
         )
-        db.usage.upsert(
+        db.logs.upsert_usage(
             "acct",
             "gw",
             "small-1",
@@ -71,7 +62,7 @@ def populated_db(tmp_path: Path) -> Path:
             200,
             None,
         )
-        db.usage.upsert(
+        db.logs.upsert_usage(
             "acct",
             "gw",
             "small-2",
@@ -80,7 +71,7 @@ def populated_db(tmp_path: Path) -> Path:
             200,
             None,
         )
-        db.usage.upsert(
+        db.logs.upsert_usage(
             "acct",
             "gw",
             "big-1",
@@ -107,10 +98,13 @@ def test_list_gateway_scopes(populated_db: Path) -> None:
     ]
 
 
-def test_summary_aggregates(populated_db: Path) -> None:
+def test_unified_analytics_payload(populated_db: Path) -> None:
     with open_readonly_connection(populated_db) as conn:
-        summary = build_summary(conn, AnalyticsFilters(account_id="acct", gateway_id="gw"))
+        payload = build_analytics(
+            conn, AnalyticsFilters(account_id="acct", gateway_id="gw"), limit=2
+        )
 
+    summary = payload["summary"]
     assert summary["requests"] == 3
     assert summary["success_count"] == 2
     assert summary["failed_count"] == 1
@@ -125,59 +119,33 @@ def test_summary_aggregates(populated_db: Path) -> None:
     assert summary["p95_total_ms"] is not None
     assert summary["usage_statuses"]["parsed"] == 3
 
-
-def test_timeseries_groups_by_hour(populated_db: Path) -> None:
-    with open_readonly_connection(populated_db) as conn:
-        timeseries = build_timeseries(conn, AnalyticsFilters(account_id="acct", gateway_id="gw"))
-
-    assert [item["hour"] for item in timeseries] == [
+    assert [item["hour"] for item in payload["timeseries"]] == [
         "2026-05-22T00:00:00Z",
         "2026-05-22T01:00:00Z",
     ]
-    first = timeseries[0]
-    assert first["requests"] == 2
-    assert first["rpm"] == pytest.approx(2 / 60, rel=1e-3)
+    assert payload["timeseries"][0]["requests"] == 2
+    assert payload["timeseries"][0]["rpm"] == pytest.approx(2 / 60, rel=1e-3)
 
-
-def test_model_stats_ordered_by_requests(populated_db: Path) -> None:
-    with open_readonly_connection(populated_db) as conn:
-        models = build_model_stats(conn, AnalyticsFilters(account_id="acct", gateway_id="gw"))
-
-    assert [item["model"] for item in models] == ["model-fast", "model-deep"]
-    fast = models[0]
+    assert [item["model"] for item in payload["by_model"]] == ["model-fast", "model-deep"]
+    fast = payload["by_model"][0]
     assert fast["requests"] == 2
     assert fast["success_rate"] == 1.0
     assert fast["cache_ratio"] == pytest.approx(60 / 300, rel=1e-3)
     assert fast["providers"] == ["openai"]
 
+    assert payload["filter_options"]["providers"] == [
+        {"provider": "openai", "requests": 2},
+        {"provider": "anthropic", "requests": 1},
+    ]
+    assert payload["filter_options"]["models"][0] == {
+        "model": "model-fast",
+        "providers": ["openai"],
+        "requests": 2,
+    }
 
-def test_context_buckets(populated_db: Path) -> None:
-    with open_readonly_connection(populated_db) as conn:
-        buckets = build_context_buckets(conn, AnalyticsFilters(account_id="acct", gateway_id="gw"))
-
-    labels = [item["context_bucket"] for item in buckets]
-    assert "<1k" in labels
-    assert "100k-500k" in labels
-
-
-def test_recent_events_capped_to_limit(populated_db: Path) -> None:
-    with open_readonly_connection(populated_db) as conn:
-        events = build_recent_events(
-            conn,
-            AnalyticsFilters(account_id="acct", gateway_id="gw"),
-            limit=2,
-        )
-    assert len(events) == 2
-    assert events[0]["log_id"] == "big-1"
-    assert "raw_json" not in events[0]
-
-
-def test_insights_basic(populated_db: Path) -> None:
-    with open_readonly_connection(populated_db) as conn:
-        insights = build_insights(conn, AnalyticsFilters(account_id="acct", gateway_id="gw"))
-    titles = [item["title"] for item in insights]
-    assert "主力模型" in titles
-    assert "请求峰值时段" in titles
+    assert len(payload["events"]) == 2
+    assert payload["events"][0]["log_id"] == "big-1"
+    assert "raw_json" not in payload["events"][0]
 
 
 def test_summary_empty_when_no_data(tmp_path: Path) -> None:
@@ -185,6 +153,6 @@ def test_summary_empty_when_no_data(tmp_path: Path) -> None:
     with AnalyzerDatabase(path):
         pass
     with open_readonly_connection(path) as conn:
-        summary = build_summary(conn, AnalyticsFilters())
-    assert summary["requests"] == 0
-    assert summary["total_tokens"] == 0
+        payload = build_analytics(conn, AnalyticsFilters())
+    assert payload["summary"]["requests"] == 0
+    assert payload["summary"]["total_tokens"] == 0

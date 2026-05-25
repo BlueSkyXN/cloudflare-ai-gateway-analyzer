@@ -20,7 +20,7 @@ async def status_endpoint(
     state=Depends(get_state),
 ) -> dict[str, Any]:
     summary = state.db.logs.summary(account_id, gateway_id)
-    usage_counts = state.db.usage.status_counts(account_id, gateway_id)
+    usage_counts = state.db.logs.status_counts(account_id, gateway_id)
     last_run = state.db.sync_runs.last(account_id, gateway_id)
     return {
         "database": str(state.db.path),

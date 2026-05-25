@@ -3,7 +3,6 @@
 from cf_aigw_analyzer.control.routes import (
     analytics_route,
     config_route,
-    events_route,
     health_route,
     scopes_route,
     status_route,
@@ -13,7 +12,6 @@ from cf_aigw_analyzer.control.routes import (
 __all__ = [
     "analytics_route",
     "config_route",
-    "events_route",
     "health_route",
     "scopes_route",
     "status_route",

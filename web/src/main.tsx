@@ -5,6 +5,9 @@ import { BrowserRouter } from "react-router-dom";
 
 import App from "./App";
 import "./styles.css";
+import { applyTheme, useUiPreferences } from "./store/ui";
+
+applyTheme(useUiPreferences.getState().theme);
 
 const queryClient = new QueryClient({
   defaultOptions: {

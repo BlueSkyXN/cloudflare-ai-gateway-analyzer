@@ -14,6 +14,7 @@ from cf_aigw_analyzer.core.cloudflare import CloudflareClient, LogFilters
 from cf_aigw_analyzer.core.http_client import HttpClient
 from cf_aigw_analyzer.core.sync_engine import SyncEngine
 from cf_aigw_analyzer.data.db import AnalyzerDatabase
+from cf_aigw_analyzer.data.repository import SyncLockBusy
 
 
 @pytest.fixture
@@ -77,8 +78,54 @@ async def test_sync_logs_paginates_and_persists(db: AnalyzerDatabase) -> None:
             LogFilters(per_page=2),
         )
     assert result.logs_count == 3
-    stored = db.conn.execute("SELECT log_id FROM logs ORDER BY log_id").fetchall()
+    stored = db.conn.execute("SELECT log_id FROM log_events ORDER BY log_id").fetchall()
     assert [row["log_id"] for row in stored] == ["log-1", "log-2", "log-3"]
+    state = db.sync_state.get("acct", "gw", "sync")
+    assert state is not None
+    assert state["last_success_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_incremental_sync_uses_checkpoint_overlap(db: AnalyzerDatabase) -> None:
+    db.sync_state.record_success(
+        "acct",
+        "gw",
+        "sync",
+        last_seen_created_at="2026-05-22T10:00:00Z",
+        last_seen_log_id="log-old",
+    )
+    seen_start_dates: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_start_dates.append(request.url.params.get("start_date"))
+        return httpx.Response(
+            200, json={"success": True, "result_info": {"total_count": 0}, "result": []}
+        )
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        await engine.sync_logs("acct", "gw", LogFilters(per_page=2), incremental=True)
+
+    assert seen_start_dates == ["2026-05-22T09:50:00Z"]
+    runs = db.sync_runs.list_recent("acct", "gw")
+    params = json.loads(runs[0]["params_json"])
+    assert params["incremental"] is True
+    assert params["start_date"] == "2026-05-22T09:50:00Z"
+
+
+@pytest.mark.asyncio
+async def test_sync_logs_rejects_existing_lock(db: AnalyzerDatabase) -> None:
+    db.sync_locks.acquire("acct", "gw", "sync", "already-running", ttl_seconds=60)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("locked sync must not call upstream")
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        with pytest.raises(SyncLockBusy):
+            await engine.sync_logs("acct", "gw", LogFilters(per_page=2))
 
 
 @pytest.mark.asyncio
@@ -117,19 +164,19 @@ async def test_sync_usage_classifies_responses(db: AnalyzerDatabase) -> None:
     assert result.failed == 1
 
     usage_rows = {
-        row["log_id"]: row for row in db.conn.execute("SELECT * FROM log_usage").fetchall()
+        row["log_id"]: row for row in db.conn.execute("SELECT * FROM log_events").fetchall()
     }
-    assert usage_rows["log-a"]["fetch_status"] == "parsed"
+    assert usage_rows["log-a"]["usage_fetch_status"] == "parsed"
     assert usage_rows["log-a"]["input_tokens"] == 10
-    assert usage_rows["log-b"]["fetch_status"] == "no_usage"
-    assert usage_rows["log-c"]["fetch_status"] == "failed"
+    assert usage_rows["log-b"]["usage_fetch_status"] == "no_usage"
+    assert usage_rows["log-c"]["usage_fetch_status"] == "failed"
 
     # tokens_in/out backfilled
     log_a = db.conn.execute(
-        "SELECT tokens_in, tokens_out FROM logs WHERE log_id='log-a'"
+        "SELECT input_tokens, output_tokens FROM log_events WHERE log_id='log-a'"
     ).fetchone()
-    assert log_a["tokens_in"] == 10
-    assert log_a["tokens_out"] == 5
+    assert log_a["input_tokens"] == 10
+    assert log_a["output_tokens"] == 5
 
 
 @pytest.mark.asyncio
@@ -159,8 +206,10 @@ async def test_parsed_with_zero_tokens_treated_as_no_usage(db: AnalyzerDatabase)
         engine = SyncEngine(settings, db, client=client)
         result = await engine.sync_usage("acct", "gw")
     assert result.no_usage == 1
-    row = db.conn.execute("SELECT fetch_status FROM log_usage WHERE log_id='log-x'").fetchone()
-    assert row["fetch_status"] == "no_usage"
+    row = db.conn.execute(
+        "SELECT usage_fetch_status FROM log_events WHERE log_id='log-x'"
+    ).fetchone()
+    assert row["usage_fetch_status"] == "no_usage"
 
 
 @pytest.mark.asyncio

@@ -1,22 +1,22 @@
 """SQLite schema definition for the analyzer.
 
-Schema version 3 layout (v0.3.0 refactor):
+Schema version 5 layout (single fact table + raw JSON side table):
 
 * ``gateways``       — gateway metadata (1 row per gateway)
-* ``logs``           — sanitized log metadata (no raw_json)
-* ``logs_raw``       — sanitized raw_json (1:1 with logs, queried on demand)
-* ``log_usage``      — parsed token usage (1:1 with logs)
-* ``log_metrics``    — derived per-log metrics (1:1 with logs)
+* ``log_events``     — one analytics-ready row per Cloudflare AI Gateway log
+* ``log_raw``        — sanitized raw_json (1:1 with log_events, queried on demand)
 * ``sync_runs``      — sync run audit log
+* ``sync_state``     — per-scope incremental sync checkpoint
+* ``sync_locks``     — per-scope writer lock to avoid duplicate concurrent sync
 * ``migrations``     — applied schema version history
 
-All log-keyed tables share ``(account_id, gateway_id, log_id)`` so scope is
-explicit at every read.
+``provider`` is the channel dimension. The schema intentionally avoids a second
+``channel`` alias so filtering and grouping have a single source of truth.
 """
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 PRAGMAS = (
     "PRAGMA foreign_keys=ON",
@@ -43,25 +43,45 @@ CREATE TABLE IF NOT EXISTS gateways (
     PRIMARY KEY (account_id, gateway_id)
 );
 
-CREATE TABLE IF NOT EXISTS logs (
-    account_id   TEXT NOT NULL,
-    gateway_id   TEXT NOT NULL,
-    log_id       TEXT NOT NULL,
-    created_at   TEXT,
-    provider     TEXT,
-    model        TEXT,
-    model_type   TEXT,
-    success      INTEGER,
-    cached       INTEGER,
-    status_code  INTEGER,
-    cost_usd     REAL,
-    tokens_in    INTEGER,
-    tokens_out   INTEGER,
-    synced_at    TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS log_events (
+    account_id             TEXT NOT NULL,
+    gateway_id             TEXT NOT NULL,
+    log_id                 TEXT NOT NULL,
+    created_at             TEXT,
+    provider               TEXT,
+    model                  TEXT,
+    model_type             TEXT,
+    success                INTEGER,
+    cached                 INTEGER,
+    status_code            INTEGER,
+    cost_usd               REAL,
+    input_tokens           INTEGER,
+    output_tokens          INTEGER,
+    total_tokens           INTEGER,
+    cached_tokens          INTEGER,
+    reasoning_tokens       INTEGER,
+    cache_write_tokens     INTEGER,
+    duration_ms            REAL,
+    latency_ms             REAL,
+    total_ms               REAL,
+    generation_ms          REAL,
+    output_tps             REAL,
+    ms_per_output_token    REAL,
+    visible_output_tokens  INTEGER,
+    visible_output_tps     REAL,
+    usage_source           TEXT,
+    usage_fetch_status     TEXT CHECK (
+        usage_fetch_status IS NULL OR usage_fetch_status IN ('parsed','no_usage','failed')
+    ),
+    usage_http_status_code INTEGER,
+    usage_error_message    TEXT,
+    usage_fetched_at       TEXT,
+    synced_at              TEXT NOT NULL,
+    updated_at             TEXT NOT NULL,
     PRIMARY KEY (account_id, gateway_id, log_id)
 );
 
-CREATE TABLE IF NOT EXISTS logs_raw (
+CREATE TABLE IF NOT EXISTS log_raw (
     account_id   TEXT NOT NULL,
     gateway_id   TEXT NOT NULL,
     log_id       TEXT NOT NULL,
@@ -69,48 +89,7 @@ CREATE TABLE IF NOT EXISTS logs_raw (
     updated_at   TEXT NOT NULL,
     PRIMARY KEY (account_id, gateway_id, log_id),
     FOREIGN KEY (account_id, gateway_id, log_id)
-        REFERENCES logs(account_id, gateway_id, log_id)
-        ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS log_metrics (
-    account_id            TEXT NOT NULL,
-    gateway_id            TEXT NOT NULL,
-    log_id                TEXT NOT NULL,
-    duration_ms           REAL,
-    latency_ms            REAL,
-    total_ms              REAL,
-    generation_ms         REAL,
-    output_tps            REAL,
-    ms_per_output_token   REAL,
-    visible_output_tokens INTEGER,
-    visible_output_tps    REAL,
-    computed_at           TEXT NOT NULL,
-    PRIMARY KEY (account_id, gateway_id, log_id),
-    FOREIGN KEY (account_id, gateway_id, log_id)
-        REFERENCES logs(account_id, gateway_id, log_id)
-        ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS log_usage (
-    account_id         TEXT NOT NULL,
-    gateway_id         TEXT NOT NULL,
-    log_id             TEXT NOT NULL,
-    input_tokens       INTEGER,
-    output_tokens      INTEGER,
-    total_tokens       INTEGER,
-    cached_tokens      INTEGER,
-    reasoning_tokens   INTEGER,
-    cache_write_tokens INTEGER,
-    source             TEXT,
-    fetch_status       TEXT NOT NULL CHECK (fetch_status IN ('parsed','no_usage','failed')),
-    http_status_code   INTEGER,
-    error_message      TEXT,
-    fetched_at         TEXT NOT NULL,
-    updated_at         TEXT NOT NULL,
-    PRIMARY KEY (account_id, gateway_id, log_id),
-    FOREIGN KEY (account_id, gateway_id, log_id)
-        REFERENCES logs(account_id, gateway_id, log_id)
+        REFERENCES log_events(account_id, gateway_id, log_id)
         ON DELETE CASCADE
 );
 
@@ -129,16 +108,37 @@ CREATE TABLE IF NOT EXISTS sync_runs (
     finished_at      TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_logs_scope_time
-    ON logs(account_id, gateway_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_logs_provider_model
-    ON logs(account_id, gateway_id, provider, model);
-CREATE INDEX IF NOT EXISTS idx_logs_global_time
-    ON logs(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_usage_scope_status
-    ON log_usage(account_id, gateway_id, fetch_status);
-CREATE INDEX IF NOT EXISTS idx_metrics_scope
-    ON log_metrics(account_id, gateway_id);
+CREATE TABLE IF NOT EXISTS sync_state (
+    account_id           TEXT NOT NULL,
+    gateway_id           TEXT NOT NULL,
+    mode                 TEXT NOT NULL,
+    last_success_at      TEXT,
+    last_seen_created_at TEXT,
+    last_seen_log_id     TEXT,
+    updated_at           TEXT NOT NULL,
+    PRIMARY KEY (account_id, gateway_id, mode)
+);
+
+CREATE TABLE IF NOT EXISTS sync_locks (
+    account_id  TEXT NOT NULL,
+    gateway_id  TEXT NOT NULL,
+    mode        TEXT NOT NULL,
+    owner       TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    PRIMARY KEY (account_id, gateway_id, mode)
+);
+
+CREATE INDEX IF NOT EXISTS idx_log_events_scope_time
+    ON log_events(account_id, gateway_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_log_events_provider_model
+    ON log_events(account_id, gateway_id, provider, model);
+CREATE INDEX IF NOT EXISTS idx_log_events_global_time
+    ON log_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_log_events_usage_status
+    ON log_events(account_id, gateway_id, usage_fetch_status);
 CREATE INDEX IF NOT EXISTS idx_sync_runs_scope_time
     ON sync_runs(account_id, gateway_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sync_locks_expires
+    ON sync_locks(expires_at);
 """

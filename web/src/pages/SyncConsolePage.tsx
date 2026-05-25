@@ -5,10 +5,17 @@ import clsx from "clsx";
 import { api } from "@/api/client";
 import { useJobs, useStatus, useSyncRuns } from "@/hooks/queries";
 import { useFilters } from "@/store/filters";
-import { formatInt } from "@/utils/format";
+import { formatDateTime, formatInt } from "@/utils/format";
 
 function normalizeLimit(value: number): number {
   return Math.max(1, Math.trunc(value) || 1);
+}
+
+function formatJobStatus(value: string): string {
+  if (value === "running") return "运行中";
+  if (value === "done") return "完成";
+  if (value === "failed") return "失败";
+  return value;
 }
 
 export function SyncConsolePage() {
@@ -24,7 +31,7 @@ export function SyncConsolePage() {
 
   const triggerSyncLogs = useMutation({
     mutationFn: () => {
-      if (!scope) throw new Error("没有选中 scope");
+      if (!scope) throw new Error("没有选中网关范围");
       const safeLimit = normalizeLimit(limit);
       return api.triggerSyncLogs({
         account_id: scope.account_id,
@@ -42,7 +49,7 @@ export function SyncConsolePage() {
 
   const triggerSyncUsage = useMutation({
     mutationFn: () => {
-      if (!scope) throw new Error("没有选中 scope");
+      if (!scope) throw new Error("没有选中网关范围");
       const safeLimit = normalizeLimit(limit);
       return api.triggerSyncUsage({
         account_id: scope.account_id,
@@ -60,34 +67,34 @@ export function SyncConsolePage() {
     <div className="flex flex-col gap-6">
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="panel-lg flex flex-col gap-3">
-          <header className="text-sm uppercase tracking-wider text-text-dim">Database</header>
+          <header className="text-sm font-medium text-text-dim">数据库</header>
           <dl className="grid grid-cols-2 gap-y-1 text-sm">
-            <dt className="text-text-dim">Total logs</dt>
+            <dt className="text-text-dim">日志总数</dt>
             <dd>{formatInt(status?.total_logs)}</dd>
-            <dt className="text-text-dim">First log</dt>
-            <dd className="font-mono text-xs">{status?.first_log_at ?? "-"}</dd>
-            <dt className="text-text-dim">Last log</dt>
-            <dd className="font-mono text-xs">{status?.last_log_at ?? "-"}</dd>
-            <dt className="text-text-dim">Parsed</dt>
+            <dt className="text-text-dim">最早日志</dt>
+            <dd className="font-mono text-xs">{formatDateTime(status?.first_log_at)}</dd>
+            <dt className="text-text-dim">最新日志</dt>
+            <dd className="font-mono text-xs">{formatDateTime(status?.last_log_at)}</dd>
+            <dt className="text-text-dim">已解析</dt>
             <dd>{formatInt(status?.usage_parsed)}</dd>
-            <dt className="text-text-dim">No usage</dt>
+            <dt className="text-text-dim">无 usage</dt>
             <dd>{formatInt(status?.usage_no_usage)}</dd>
-            <dt className="text-text-dim">Failed</dt>
+            <dt className="text-text-dim">失败</dt>
             <dd>{formatInt(status?.usage_failed)}</dd>
           </dl>
         </div>
 
         <div className="panel-lg lg:col-span-2 flex flex-col gap-3">
-          <header className="text-sm uppercase tracking-wider text-text-dim">Trigger</header>
+          <header className="text-sm font-medium text-text-dim">触发同步</header>
           <div className="flex flex-wrap items-end gap-3 text-sm">
             <label className="flex flex-col gap-1">
-              <span className="text-text-dim">Limit</span>
+              <span className="text-text-dim">数量上限</span>
               <input
                 type="number"
                 value={limit}
                 min={1}
                 onChange={(e) => setLimit(normalizeLimit(Number(e.target.value)))}
-                className="bg-bg-subtle border border-line rounded-md px-2 py-1.5 w-28"
+                className="field w-28"
               />
             </label>
             <label className="flex items-center gap-2">
@@ -96,7 +103,7 @@ export function SyncConsolePage() {
                 checked={withUsage}
                 onChange={(e) => setWithUsage(e.target.checked)}
               />
-              <span>with usage</span>
+              <span>同步 usage</span>
             </label>
             <label className="flex items-center gap-2">
               <input
@@ -104,21 +111,21 @@ export function SyncConsolePage() {
                 checked={missingOnly}
                 onChange={(e) => setMissingOnly(e.target.checked)}
               />
-              <span>missing only</span>
+              <span>仅缺失项</span>
             </label>
             <button
               className="btn-primary"
               onClick={() => triggerSyncLogs.mutate()}
               disabled={!scope || triggerSyncLogs.isPending}
             >
-              Sync metadata
+              同步日志
             </button>
             <button
               className="btn"
               onClick={() => triggerSyncUsage.mutate()}
               disabled={!scope || triggerSyncUsage.isPending}
             >
-              Sync usage only
+              仅同步 usage
             </button>
           </div>
           {(triggerSyncLogs.error || triggerSyncUsage.error) && (
@@ -130,20 +137,20 @@ export function SyncConsolePage() {
       </section>
 
       <section className="panel-lg">
-        <header className="text-sm uppercase tracking-wider text-text-dim mb-3">Jobs (live)</header>
+        <header className="text-sm font-medium text-text-dim mb-3">任务状态</header>
         <div className="overflow-x-auto">
           <table className="compact">
             <thead>
               <tr>
-                <th>Job</th>
-                <th>Mode</th>
-                <th>Status</th>
-                <th>Targets</th>
-                <th>Parsed</th>
-                <th>Failed</th>
-                <th>Started</th>
-                <th>Finished</th>
-                <th>Error</th>
+                <th>任务</th>
+                <th>模式</th>
+                <th>状态</th>
+                <th>目标数</th>
+                <th>已解析</th>
+                <th>失败</th>
+                <th>开始</th>
+                <th>结束</th>
+                <th>错误</th>
               </tr>
             </thead>
             <tbody>
@@ -157,23 +164,23 @@ export function SyncConsolePage() {
                         job.status === "done" && "chip-success",
                         job.status === "running" && "chip",
                         job.status === "failed" && "chip-danger"
-                      )}
-                    >
-                      {job.status}
+                    )}
+                  >
+                      {formatJobStatus(job.status)}
                     </span>
                   </td>
                   <td>{formatInt(job.targets)}</td>
                   <td>{formatInt(job.usage_parsed)}</td>
                   <td>{formatInt(job.usage_failed)}</td>
-                  <td className="font-mono text-xs">{job.started_at?.slice(0, 19)}</td>
-                  <td className="font-mono text-xs">{job.finished_at?.slice(0, 19) ?? "-"}</td>
+                  <td className="font-mono text-xs">{formatDateTime(job.started_at)}</td>
+                  <td className="font-mono text-xs">{formatDateTime(job.finished_at)}</td>
                   <td className="text-danger text-xs">{job.error ?? "-"}</td>
                 </tr>
               ))}
               {(jobs ?? []).length === 0 && (
                 <tr>
                   <td colSpan={9} className="text-center text-text-dim py-6">
-                    No active or recent jobs.
+                    暂无进行中或近期任务。
                   </td>
                 </tr>
               )}
@@ -183,20 +190,20 @@ export function SyncConsolePage() {
       </section>
 
       <section className="panel-lg">
-        <header className="text-sm uppercase tracking-wider text-text-dim mb-3">Recent sync_runs</header>
+        <header className="text-sm font-medium text-text-dim mb-3">近期同步记录</header>
         <div className="overflow-x-auto">
           <table className="compact">
             <thead>
               <tr>
-                <th>Run</th>
-                <th>Mode</th>
-                <th>Logs</th>
-                <th>Fetched</th>
-                <th>Parsed</th>
-                <th>No usage</th>
-                <th>Failed</th>
-                <th>Started</th>
-                <th>Finished</th>
+                <th>记录</th>
+                <th>模式</th>
+                <th>日志</th>
+                <th>已获取</th>
+                <th>已解析</th>
+                <th>无 usage</th>
+                <th>失败</th>
+                <th>开始</th>
+                <th>结束</th>
               </tr>
             </thead>
             <tbody>
@@ -209,14 +216,14 @@ export function SyncConsolePage() {
                   <td>{formatInt(run.usage_parsed)}</td>
                   <td>{formatInt(run.usage_no_usage)}</td>
                   <td>{formatInt(run.usage_failed)}</td>
-                  <td className="font-mono text-xs">{run.started_at.slice(0, 19)}</td>
-                  <td className="font-mono text-xs">{run.finished_at.slice(0, 19)}</td>
+                  <td className="font-mono text-xs">{formatDateTime(run.started_at)}</td>
+                  <td className="font-mono text-xs">{formatDateTime(run.finished_at)}</td>
                 </tr>
               ))}
               {(runs ?? []).length === 0 && (
                 <tr>
                   <td colSpan={9} className="text-center text-text-dim py-6">
-                    No sync runs yet.
+                    暂无同步记录。
                   </td>
                 </tr>
               )}

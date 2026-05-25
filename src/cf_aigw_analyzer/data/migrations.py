@@ -1,12 +1,8 @@
 """Schema migration runner.
 
-Strategy: a single :data:`SCHEMA_VERSION` constant in :mod:`schema` represents
-the current target. ``user_version`` PRAGMA is updated transactionally, and
-every applied version is appended to the ``migrations`` table for audit.
-
-For v0.3 we ship a clean schema and do not need step-wise migrations from v0.2
-data (the user explicitly accepted full rewrite without migration). Future
-upgrades should append handlers to :data:`MIGRATIONS`.
+Version 5 intentionally resets local analyzer data into a simpler schema. The
+project is a local sync cache, and the v5 design trades old-cache preservation for
+one analytics fact table that can be repopulated from Cloudflare.
 """
 
 from __future__ import annotations
@@ -20,15 +16,33 @@ from cf_aigw_analyzer.utils.time import utc_now
 MigrationFn = Callable[[sqlite3.Connection], None]
 
 
-def _migration_v3(conn: sqlite3.Connection) -> None:
-    """Initial v3 schema. Executes the full DDL idempotently."""
+RESET_TABLES = (
+    "log_raw",
+    "log_events",
+    "logs_raw",
+    "log_metrics",
+    "log_usage",
+    "logs",
+    "sync_locks",
+    "sync_state",
+    "sync_runs",
+    "gateways",
+)
 
-    conn.executescript(DDL)
+
+def _migration_v5(conn: sqlite3.Connection) -> None:
+    """Reset legacy multi-table log storage and create the v5 schema."""
+
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        for table in RESET_TABLES:
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+        conn.executescript(DDL)
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
 
 
-MIGRATIONS: dict[int, MigrationFn] = {
-    3: _migration_v3,
-}
+MIGRATIONS: dict[int, MigrationFn] = {5: _migration_v5}
 
 
 def current_version(conn: sqlite3.Connection) -> int:
