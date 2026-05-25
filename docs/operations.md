@@ -51,6 +51,18 @@ python cli.py sync -a <ACCOUNT_ID> --gateway-name <GW> --order-by created_at --d
 Sync is idempotent — re-running the same command upserts on `(account_id, gateway_id, log_id)`.
 `--limit` must be a positive integer. Omit it for an uncapped metadata sync.
 
+For repeated agent/cron runs after an initial backfill, prefer explicit
+incremental mode:
+
+```bash
+python cli.py sync -a <ACCOUNT_ID> --gateway-name <GW> --incremental --limit 500
+```
+
+`--incremental` reads `sync_state`, rewinds the previous `last_seen_created_at`
+by `sync.incremental_overlap_minutes`, and lets the SQLite primary key absorb
+the intentional overlap. Do not combine it with manual `--start-date` /
+`--end-date` filters.
+
 ## Usage sync
 
 ```bash
@@ -74,6 +86,10 @@ python cli.py sync -a <ACCOUNT_ID> --gateway-name <GW> --with-usage --missing-on
 Use `--usage-limit` when the follow-up usage backfill should be capped
 separately from metadata sync. In the React Sync page, the single Limit field is
 applied to both metadata and usage when `with usage` is enabled.
+
+The sync engine also takes a per-scope writer lock, so a second agent trying to
+run the same `(account_id, gateway_id, mode)` while one is active fails fast
+instead of wasting duplicate Cloudflare requests.
 
 ## Querying
 

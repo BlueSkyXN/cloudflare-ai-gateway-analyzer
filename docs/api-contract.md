@@ -19,55 +19,72 @@ There is no per-route exemption. Once the token is set, even `/docs` and `/opena
 
 ### Meta
 
-| Method | Path                                  | Description                                                                  |
-| ------ | ------------------------------------- | ---------------------------------------------------------------------------- |
-| GET    | `/api/v1/health`                      | Version, DB path, DB size in bytes, whether credentials are configured.      |
+| Method | Path             | Description                                                             |
+| ------ | ---------------- | ----------------------------------------------------------------------- |
+| GET    | `/api/v1/health` | Version, DB path, DB size in bytes, whether credentials are configured. |
 
 ### Scopes
 
-| Method | Path                                  | Description                                                                  |
-| ------ | ------------------------------------- | ---------------------------------------------------------------------------- |
-| GET    | `/api/v1/scopes`                      | All `(account_id, gateway_id)` pairs with cached counts and first/last seen. |
+| Method | Path                                   | Description                                                                  |
+| ------ | -------------------------------------- | ---------------------------------------------------------------------------- |
+| GET    | `/api/v1/scopes`                       | All `(account_id, gateway_id)` pairs with cached counts and first/last seen. |
 | GET    | `/api/v1/scopes/{account_id}/gateways` | Gateway metadata cached locally for a specific account.                      |
 
 ### Analytics
 
-All analytics routes accept the same query filters:
+The current analytics contract is a single route:
 
+| Method | Path                 | Returns                                                                                     |
+| ------ | -------------------- | ------------------------------------------------------------------------------------------- |
+| GET    | `/api/v1/analytics`  | `summary`, `timeseries`, `by_provider`, `by_model`, `events`, and `filter_options`.         |
+
+Query parameters:
+
+```text
+account_id, gateway_id, start_date, end_date, provider, model, success, limit
 ```
-account_id, gateway_id, start_date, end_date, provider, model, success
-```
 
-| Method | Path                                  | Returns                                                                    |
-| ------ | ------------------------------------- | -------------------------------------------------------------------------- |
-| GET    | `/api/v1/analytics/summary`           | Aggregated counts, token totals, latency percentiles, cache ratio, usage statuses. |
-| GET    | `/api/v1/analytics/timeseries`        | Hourly aggregates with RPM / TPM / latency / TPS series.                   |
-| GET    | `/api/v1/analytics/models`            | Per-model breakdown with p95 latency for the top 25 models.                |
-| GET    | `/api/v1/analytics/context-buckets`   | Input-token bucket comparison (<1k, 1k-10k, 10k-100k, 100k-500k, 500k+).   |
-| GET    | `/api/v1/analytics/insights`          | Human-readable conclusions (top model, slow model, peak hour, cache rate). |
+- `provider` is the channel dimension displayed as “渠道” in the UI.
+- `limit` controls the number of recent `events` returned. It defaults to 500 and is capped at 5000.
+- Dates accept `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM:SS[Z]`, or `YYYY/MM/DD`.
+- Strings are passed as-is; booleans accept `true` / `false`.
 
-### Events
+Response sections:
 
-| Method | Path                  | Notes                                                                          |
-| ------ | --------------------- | ------------------------------------------------------------------------------ |
-| GET    | `/api/v1/events`      | Recent events sorted by `created_at DESC`. `limit` capped at 5000 (default 500). Returned shape: `{events: EventItem[], count: int}`. |
+| Section          | Description                                                                                   |
+| ---------------- | --------------------------------------------------------------------------------------------- |
+| `summary`        | Request count, success rate, model/provider count, token totals, cache ratio, latency percentiles, average TPS, usage status counts. |
+| `timeseries`     | Hourly request/token/latency/TPS series.                                                       |
+| `by_provider`    | Provider-level breakdown.                                                                      |
+| `by_model`       | Model-level breakdown with provider list and p95 total latency.                                |
+| `events`         | Recent `log_events` rows with usage, timing, status, and TPS fields.                           |
+| `filter_options` | Provider and model option lists for dashboard filters.                                         |
+
+Removed legacy frontend dependencies:
+
+- `/api/v1/analytics/summary`
+- `/api/v1/analytics/timeseries`
+- `/api/v1/analytics/models`
+- `/api/v1/analytics/context-buckets`
+- `/api/v1/analytics/insights`
+- `/api/v1/events`
 
 ### Status & sync runs
 
-| Method | Path                              | Notes                                                                |
-| ------ | --------------------------------- | -------------------------------------------------------------------- |
-| GET    | `/api/v1/status`                  | Same payload as `cf-aigw-analyzer status` CLI.                       |
-| GET    | `/api/v1/sync/runs`               | Recent rows from `sync_runs` table.                                  |
-| GET    | `/api/v1/sync/runs/{run_id}`      | Single sync run by id. 404 when missing.                             |
+| Method | Path                         | Notes                                          |
+| ------ | ---------------------------- | ---------------------------------------------- |
+| GET    | `/api/v1/status`             | Same payload as `cf-aigw-analyzer status` CLI. |
+| GET    | `/api/v1/sync/runs`          | Recent rows from `sync_runs` table.            |
+| GET    | `/api/v1/sync/runs/{run_id}` | Single sync run by id. 404 when missing.       |
 
 ### Sync triggers (async jobs)
 
-| Method | Path                              | Body / params                                                        |
-| ------ | --------------------------------- | -------------------------------------------------------------------- |
-| POST   | `/api/v1/sync/logs`               | `SyncTriggerRequest`. Returns `{job_id, status: "running", mode}`.   |
-| POST   | `/api/v1/sync/usage`              | `SyncUsageTriggerRequest`. Returns `{job_id, status, mode}`.         |
-| GET    | `/api/v1/sync/jobs`               | All in-process jobs with status.                                     |
-| GET    | `/api/v1/sync/jobs/{job_id}`      | Single job status (poll until `status="done"` or `"failed"`).        |
+| Method | Path                         | Body / params                                                       |
+| ------ | ---------------------------- | ------------------------------------------------------------------- |
+| POST   | `/api/v1/sync/logs`          | `SyncTriggerRequest`. Returns `{job_id, status: "running", mode}`. |
+| POST   | `/api/v1/sync/usage`         | `SyncUsageTriggerRequest`. Returns `{job_id, status, mode}`.        |
+| GET    | `/api/v1/sync/jobs`          | All in-process jobs with status.                                    |
+| GET    | `/api/v1/sync/jobs/{job_id}` | Single job status (poll until `status="done"` or `"failed"`).     |
 
 Jobs run inside the FastAPI worker process via `asyncio.create_task`. There is no external broker — this matches the analyzer's single-process design. The registry retains the most recent 100 jobs and drops finished ones beyond that.
 
@@ -77,22 +94,17 @@ Sync trigger numeric constraints are part of the public contract:
 - `/sync/usage`: `limit >= 1`, `workers` in `1..64`.
 - Omitted limits mean "no explicit cap"; `0` and negative values are rejected with `422`.
 
-When `/sync/logs` is called with `with_usage=true`, clients should pass
-`usage_limit` when they intend the follow-up usage backfill to be capped too.
-The bundled React panel uses the same positive Limit value for both metadata
-sync and usage sync.
+`/sync/logs` also accepts `incremental: true`. In that mode the server reads `sync_state` for the same `(account_id, gateway_id, "sync")` scope, rewinds `last_seen_created_at` by `sync.incremental_overlap_minutes`, and sends that as the Cloudflare `start_date`. Do not combine `incremental=true` with explicit `start_date` / `end_date` filters; the request is treated as a job failure.
+
+When `/sync/logs` is called with `with_usage=true`, clients should pass `usage_limit` when they intend the follow-up usage backfill to be capped too. The bundled React panel uses the same positive Limit value for both metadata sync and usage sync.
 
 ### Config
 
-| Method | Path                  | Notes                                                                          |
-| ------ | --------------------- | ------------------------------------------------------------------------------ |
-| GET    | `/api/v1/config`      | Redacted settings snapshot. Secrets are returned as `"***"`. Read-only.        |
+| Method | Path             | Notes                                                                   |
+| ------ | ---------------- | ----------------------------------------------------------------------- |
+| GET    | `/api/v1/config` | Redacted settings snapshot. Secrets are returned as `"***"`. Read-only. |
 
 There is **no** `PUT /config`. Mutating credentials over HTTP is out of scope for this tool — edit `config.yaml` or environment variables instead.
-
-## Filters
-
-`AnalyticsFilters` query parameters map directly to SQL `WHERE` clauses. Dates accept `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM:SS[Z]`, or `YYYY/MM/DD`. Strings are passed as-is; booleans accept `true` / `false`.
 
 ## OpenAPI generation
 

@@ -9,10 +9,8 @@ from cf_aigw_analyzer.data.db import (
 )
 from cf_aigw_analyzer.data.models import (
     GatewayRow,
-    LogMetricsRow,
+    LogEventRow,
     LogQueryFilters,
-    LogRow,
-    LogUsageRow,
     MetricsFields,
     SyncRunRow,
     UsageFields,
@@ -21,10 +19,8 @@ from cf_aigw_analyzer.data.models import (
 __all__ = [
     "AnalyzerDatabase",
     "GatewayRow",
-    "LogMetricsRow",
+    "LogEventRow",
     "LogQueryFilters",
-    "LogRow",
-    "LogUsageRow",
     "MetricsFields",
     "SyncRunRow",
     "UsageFields",

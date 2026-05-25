@@ -33,7 +33,7 @@ def status(
             resolve_gateway_locally(db, account, gateway_id, gateway_name) if account else None
         )
         summary = db.logs.summary(account, gateway)
-        usage_counts = db.usage.status_counts(account, gateway)
+        usage_counts = db.logs.status_counts(account, gateway)
         last_run = db.sync_runs.last(account, gateway)
 
         payload = {

@@ -7,57 +7,25 @@ export function useScopes() {
   return useQuery({ queryKey: ["scopes"], queryFn: api.scopes });
 }
 
-export function useSummary() {
+export function useAnalytics(limit = 500) {
   const filters = useFilters((s) => s.buildFilters());
   return useQuery({
-    queryKey: ["summary", filters],
-    queryFn: () => api.summary(filters),
+    queryKey: ["analytics", filters, limit],
+    queryFn: () => api.analytics({ ...filters, limit }),
     enabled: !!filters.gateway_id,
   });
 }
 
-export function useTimeseries() {
-  const filters = useFilters((s) => s.buildFilters());
+export function useFilterOptions() {
+  const filters = useFilters((s) => s.buildOptionFilters());
   return useQuery({
-    queryKey: ["timeseries", filters],
-    queryFn: () => api.timeseries(filters),
+    queryKey: ["analytics-filter-options", filters],
+    queryFn: async () => {
+      const data = await api.analytics({ ...filters, limit: 1 });
+      return data.filter_options;
+    },
     enabled: !!filters.gateway_id,
-  });
-}
-
-export function useModelStats() {
-  const filters = useFilters((s) => s.buildFilters());
-  return useQuery({
-    queryKey: ["models", filters],
-    queryFn: () => api.models(filters),
-    enabled: !!filters.gateway_id,
-  });
-}
-
-export function useContextBuckets() {
-  const filters = useFilters((s) => s.buildFilters());
-  return useQuery({
-    queryKey: ["context-buckets", filters],
-    queryFn: () => api.contextBuckets(filters),
-    enabled: !!filters.gateway_id,
-  });
-}
-
-export function useInsights() {
-  const filters = useFilters((s) => s.buildFilters());
-  return useQuery({
-    queryKey: ["insights", filters],
-    queryFn: () => api.insights(filters),
-    enabled: !!filters.gateway_id,
-  });
-}
-
-export function useEvents(limit = 500) {
-  const filters = useFilters((s) => s.buildFilters());
-  return useQuery({
-    queryKey: ["events", filters, limit],
-    queryFn: () => api.events({ ...filters, limit }),
-    enabled: !!filters.gateway_id,
+    staleTime: 30_000,
   });
 }
 

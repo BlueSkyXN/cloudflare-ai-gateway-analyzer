@@ -20,7 +20,7 @@ By default we look for `./config.yaml` (or `.yml`) relative to the project root 
 ```bash
 export CF_AIGW_CONFIG=/etc/cf-aigw/config.yaml
 # or
-python cli.py --config /etc/cf-aigw/config.yaml status
+python cli.py status --config /etc/cf-aigw/config.yaml
 ```
 
 ## Sections
@@ -58,9 +58,15 @@ sync:
   usage_workers: 8    # asyncio Semaphore for /response fetches
   usage_batch_size: 50
   retry_failed: true
+  incremental_overlap_minutes: 10
 ```
 
 `usage_workers` is bounded `[1, 64]` so a misconfigured value cannot DoS Cloudflare.
+`incremental_overlap_minutes` is used by `sync --incremental` and the
+`/api/v1/sync/logs` `incremental=true` body flag. It rewinds the stored
+`sync_state.last_seen_created_at` by a small window so repeated agent/cron runs
+prefer overlap over missed late-arriving rows; SQLite primary keys absorb the
+overlap.
 
 ### `control`
 
@@ -123,6 +129,7 @@ The same redaction is used by `GET /api/v1/config`.
 | `CF_AIGW_CONTROL__AUTH_TOKEN`           | `control.auth_token`             |
 | `CF_AIGW_CONTROL__CORS_ORIGINS`         | `control.cors_origins` (JSON list) |
 | `CF_AIGW_SYNC__USAGE_WORKERS`           | `sync.usage_workers`             |
+| `CF_AIGW_SYNC__INCREMENTAL_OVERLAP_MINUTES` | `sync.incremental_overlap_minutes` |
 | `CF_AIGW_STORAGE__DATA_DIR`             | `storage.data_dir`               |
 | `CF_AIGW_LOGGING__LEVEL`                | `logging.level`                  |
 

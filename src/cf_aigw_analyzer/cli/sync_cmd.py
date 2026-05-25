@@ -17,6 +17,7 @@ from cf_aigw_analyzer.cli._common import (
 )
 from cf_aigw_analyzer.core.cloudflare import CloudflareClient, LogFilters
 from cf_aigw_analyzer.core.sync_engine import SyncEngine
+from cf_aigw_analyzer.data.repository import SyncLockBusy
 
 
 def sync(
@@ -42,6 +43,11 @@ def sync(
     no_retry_failed: bool = typer.Option(False, "--no-retry-failed"),
     usage_workers: int | None = typer.Option(None, "--usage-workers", min=1, max=64),
     usage_limit: int | None = typer.Option(None, "--usage-limit", min=1),
+    incremental: bool = typer.Option(
+        False,
+        "--incremental",
+        help="Use the local sync_state checkpoint with a small overlap window.",
+    ),
 ) -> None:
     """Sync Cloudflare AI Gateway log metadata (and optionally response usage)."""
 
@@ -68,7 +74,13 @@ def sync(
                     client, db, account, gateway_id, gateway_name
                 )
                 engine = SyncEngine(settings, db, client=client)
-                meta = await engine.sync_logs(account, resolved_gateway, filters, limit=limit)
+                meta = await engine.sync_logs(
+                    account,
+                    resolved_gateway,
+                    filters,
+                    limit=limit,
+                    incremental=incremental,
+                )
                 console.print(f"metadata 同步完成: {meta.logs_count} 条 -> {db.path}")
                 if with_usage:
                     usage = await engine.sync_usage(
@@ -88,7 +100,10 @@ def sync(
             finally:
                 await client.aclose()
 
-    run_async(_run())
+    try:
+        run_async(_run())
+    except (SyncLockBusy, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 async def _resolve_gateway(

@@ -23,10 +23,11 @@ export type SummaryResponse = {
   reasoning_tokens: number;
   cache_ratio: number | null;
   avg_total_ms: number | null;
+  avg_latency_ms: number | null;
+  avg_generation_ms: number | null;
   p50_total_ms: number | null;
   p95_total_ms: number | null;
   p99_total_ms: number | null;
-  avg_latency_ms: number | null;
   avg_output_tps: number | null;
   avg_visible_output_tps: number | null;
   usage_statuses: Record<string, number>;
@@ -43,12 +44,12 @@ export type TimeseriesPoint = {
   tpm: number;
   avg_total_ms: number | null;
   avg_latency_ms: number | null;
+  avg_generation_ms: number | null;
   avg_output_tps: number | null;
   avg_visible_output_tps: number | null;
 };
 
-export type ModelStats = {
-  model: string;
+export type BreakdownStats = {
   providers: string[];
   requests: number;
   success_count: number;
@@ -63,24 +64,35 @@ export type ModelStats = {
   avg_input_tokens: number | null;
   avg_output_tokens: number | null;
   avg_total_ms: number | null;
+  avg_latency_ms: number | null;
+  avg_generation_ms: number | null;
   avg_output_tps: number | null;
   avg_visible_output_tps: number | null;
+};
+
+export type ProviderStats = BreakdownStats & {
+  provider: string;
+};
+
+export type ModelStats = BreakdownStats & {
+  model: string;
   p95_total_ms: number | null;
 };
 
-export type ContextBucket = {
-  context_bucket: string;
+export type ProviderOption = {
+  provider: string;
   requests: number;
-  success_count: number;
-  success_rate: number | null;
-  avg_input_tokens: number | null;
-  avg_output_tokens: number | null;
-  total_tokens: number;
-  cached_tokens: number;
-  cache_ratio: number | null;
-  avg_total_ms: number | null;
-  avg_output_tps: number | null;
-  avg_visible_output_tps: number | null;
+};
+
+export type ModelOption = {
+  model: string;
+  providers: string[];
+  requests: number;
+};
+
+export type FilterOptionsResponse = {
+  providers: ProviderOption[];
+  models: ModelOption[];
 };
 
 export type InsightItem = {
@@ -103,18 +115,27 @@ export type EventItem = {
   total_tokens: number | null;
   cached_tokens: number | null;
   reasoning_tokens: number | null;
-  usage_fetch_status: string | null;
+  cache_write_tokens: number | null;
+  cost_usd: number | null;
   duration_ms: number | null;
   latency_ms: number | null;
   total_ms: number | null;
   generation_ms: number | null;
   output_tps: number | null;
+  ms_per_output_token: number | null;
+  visible_output_tokens: number | null;
   visible_output_tps: number | null;
+  usage_fetch_status: string | null;
+  usage_error_message: string | null;
 };
 
-export type EventsResponse = {
+export type AnalyticsResponse = {
+  summary: SummaryResponse;
+  timeseries: TimeseriesPoint[];
+  by_provider: ProviderStats[];
+  by_model: ModelStats[];
   events: EventItem[];
-  count: number;
+  filter_options: FilterOptionsResponse;
 };
 
 export type StatusResponse = {
@@ -159,6 +180,7 @@ export type AnalyticsFilters = {
   provider?: string;
   model?: string;
   success?: boolean;
+  limit?: number;
 };
 
 export type SyncRunSnapshot = {

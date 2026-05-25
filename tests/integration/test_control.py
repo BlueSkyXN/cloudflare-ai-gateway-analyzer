@@ -57,7 +57,7 @@ def state(tmp_path: Path) -> AppState:
             },
         ],
     )
-    db.usage.upsert(
+    db.logs.upsert_usage(
         "acct",
         "gw",
         "log-1",
@@ -66,7 +66,7 @@ def state(tmp_path: Path) -> AppState:
         200,
         None,
     )
-    db.usage.upsert("acct", "gw", "log-2", UsageFields(), FetchStatus.NO_USAGE, 404, "missing")
+    db.logs.upsert_usage("acct", "gw", "log-2", UsageFields(), FetchStatus.NO_USAGE, 404, "missing")
     state = AppState(settings=settings, db=db)
     yield state
     db.close()
@@ -99,32 +99,21 @@ async def test_scopes(client: httpx.AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_summary(client: httpx.AsyncClient) -> None:
+async def test_analytics(client: httpx.AsyncClient) -> None:
     response = await client.get(
-        "/api/v1/analytics/summary", params={"account_id": "acct", "gateway_id": "gw"}
+        "/api/v1/analytics", params={"account_id": "acct", "gateway_id": "gw", "limit": 10}
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["requests"] == 2
-    assert body["success_count"] == 1
-    assert body["total_tokens"] == 120_150
-
-
-@pytest.mark.asyncio
-async def test_timeseries_models_context(client: httpx.AsyncClient) -> None:
-    for endpoint in ("timeseries", "models", "context-buckets", "insights"):
-        response = await client.get(f"/api/v1/analytics/{endpoint}", params={"gateway_id": "gw"})
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert isinstance(body, list)
-
-
-@pytest.mark.asyncio
-async def test_events(client: httpx.AsyncClient) -> None:
-    response = await client.get("/api/v1/events", params={"gateway_id": "gw", "limit": 10})
-    assert response.status_code == 200
-    body = response.json()
-    assert body["count"] == 2
+    assert body["summary"]["requests"] == 2
+    assert body["summary"]["success_count"] == 1
+    assert body["summary"]["total_tokens"] == 120_150
+    assert isinstance(body["timeseries"], list)
+    assert isinstance(body["by_model"], list)
+    assert body["filter_options"]["providers"] == [
+        {"provider": "anthropic", "requests": 1},
+        {"provider": "openai", "requests": 1},
+    ]
     assert {item["log_id"] for item in body["events"]} == {"log-1", "log-2"}
 
 

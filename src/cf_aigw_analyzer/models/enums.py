@@ -6,7 +6,7 @@ from enum import StrEnum
 
 
 class FetchStatus(StrEnum):
-    """Possible states for a ``log_usage`` row."""
+    """Possible states for response-usage backfill on a log event."""
 
     PARSED = "parsed"
     NO_USAGE = "no_usage"

@@ -24,7 +24,6 @@ from cf_aigw_analyzer.control.middleware import configure_middleware
 from cf_aigw_analyzer.control.routes import (
     analytics_route,
     config_route,
-    events_route,
     health_route,
     scopes_route,
     status_route,
@@ -82,7 +81,6 @@ def build_app(*, settings: Settings | None = None, state: AppState | None = None
     app.include_router(health_route.router, prefix=API_PREFIX, dependencies=dependencies)
     app.include_router(scopes_route.router, prefix=API_PREFIX, dependencies=dependencies)
     app.include_router(analytics_route.router, prefix=API_PREFIX, dependencies=dependencies)
-    app.include_router(events_route.router, prefix=API_PREFIX, dependencies=dependencies)
     app.include_router(status_route.router, prefix=API_PREFIX, dependencies=dependencies)
     app.include_router(config_route.router, prefix=API_PREFIX, dependencies=dependencies)
     app.include_router(sync_route.router, prefix=API_PREFIX, dependencies=dependencies)

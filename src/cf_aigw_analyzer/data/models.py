@@ -1,9 +1,4 @@
-"""Row-level Pydantic models for the analyzer tables.
-
-These are deliberately permissive (most fields optional / None) because the
-upstream Cloudflare API may omit any column on a given log. Type discipline
-happens at the analytics aggregation layer.
-"""
+"""Row-level Pydantic models for the analyzer tables."""
 
 from __future__ import annotations
 
@@ -27,7 +22,7 @@ class GatewayRow(_Row):
     fetched_at: str
 
 
-class LogRow(_Row):
+class LogEventRow(_Row):
     account_id: str
     gateway_id: str
     log_id: str
@@ -39,15 +34,12 @@ class LogRow(_Row):
     cached: bool | None = None
     status_code: int | None = None
     cost_usd: float | None = None
-    tokens_in: int | None = None
-    tokens_out: int | None = None
-    synced_at: str
-
-
-class LogMetricsRow(_Row):
-    account_id: str
-    gateway_id: str
-    log_id: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    cached_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    cache_write_tokens: int | None = None
     duration_ms: float | None = None
     latency_ms: float | None = None
     total_ms: float | None = None
@@ -56,24 +48,12 @@ class LogMetricsRow(_Row):
     ms_per_output_token: float | None = None
     visible_output_tokens: int | None = None
     visible_output_tps: float | None = None
-    computed_at: str
-
-
-class LogUsageRow(_Row):
-    account_id: str
-    gateway_id: str
-    log_id: str
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    total_tokens: int | None = None
-    cached_tokens: int | None = None
-    reasoning_tokens: int | None = None
-    cache_write_tokens: int | None = None
-    source: str | None = None
-    fetch_status: FetchStatus
-    http_status_code: int | None = None
-    error_message: str | None = None
-    fetched_at: str
+    usage_source: str | None = None
+    usage_fetch_status: FetchStatus | None = None
+    usage_http_status_code: int | None = None
+    usage_error_message: str | None = None
+    usage_fetched_at: str | None = None
+    synced_at: str
     updated_at: str
 
 
@@ -121,7 +101,7 @@ class UsageFields(BaseModel):
 
 
 class MetricsFields(BaseModel):
-    """Computed metrics output (input to the metrics row upsert)."""
+    """Computed metrics output."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -136,7 +116,7 @@ class MetricsFields(BaseModel):
 
 
 class LogQueryFilters(BaseModel):
-    """Filter bundle for ``LogsRepository.query``."""
+    """Filter bundle for event queries."""
 
     model_config = ConfigDict(extra="forbid")
 

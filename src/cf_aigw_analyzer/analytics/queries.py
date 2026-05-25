@@ -20,7 +20,7 @@ class AnalyticsFilters:
     success: bool | None = None
 
 
-def build_where(filters: AnalyticsFilters, *, prefix: str = "l") -> tuple[str, list[Any]]:
+def build_where(filters: AnalyticsFilters, *, prefix: str = "e") -> tuple[str, list[Any]]:
     clauses: list[str] = []
     params: list[Any] = []
     if filters.account_id:
@@ -52,17 +52,17 @@ def list_gateway_scopes(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT
-            l.account_id,
-            l.gateway_id,
-            COALESCE(g.name, l.gateway_id) AS name,
+            e.account_id,
+            e.gateway_id,
+            COALESCE(g.name, e.gateway_id) AS name,
             COUNT(*) AS logs,
-            MIN(l.created_at) AS first_log_at,
-            MAX(l.created_at) AS last_log_at
-        FROM logs l
+            MIN(e.created_at) AS first_log_at,
+            MAX(e.created_at) AS last_log_at
+        FROM log_events e
         LEFT JOIN gateways g
-          ON l.account_id = g.account_id
-         AND l.gateway_id = g.gateway_id
-        GROUP BY l.account_id, l.gateway_id, COALESCE(g.name, l.gateway_id)
+          ON e.account_id = g.account_id
+         AND e.gateway_id = g.gateway_id
+        GROUP BY e.account_id, e.gateway_id, COALESCE(g.name, e.gateway_id)
         ORDER BY last_log_at DESC
         """
     ).fetchall()

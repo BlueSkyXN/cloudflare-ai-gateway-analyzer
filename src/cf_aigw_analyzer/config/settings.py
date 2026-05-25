@@ -63,6 +63,7 @@ class SyncConfig(_Section):
     usage_workers: int = Field(default=8, ge=1, le=64)
     usage_batch_size: int = Field(default=50, ge=1, le=500)
     retry_failed: bool = True
+    incremental_overlap_minutes: int = Field(default=10, ge=0, le=1440)
 
 
 class ControlConfig(_Section):

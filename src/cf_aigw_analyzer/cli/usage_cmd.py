@@ -18,6 +18,7 @@ from cf_aigw_analyzer.cli._common import (
 from cf_aigw_analyzer.cli.sync_cmd import _resolve_gateway
 from cf_aigw_analyzer.core.cloudflare import CloudflareClient
 from cf_aigw_analyzer.core.sync_engine import SyncEngine
+from cf_aigw_analyzer.data.repository import SyncLockBusy
 
 
 def sync_usage(
@@ -60,4 +61,7 @@ def sync_usage(
             finally:
                 await client.aclose()
 
-    run_async(_run())
+    try:
+        run_async(_run())
+    except SyncLockBusy as exc:
+        raise typer.BadParameter(str(exc)) from exc

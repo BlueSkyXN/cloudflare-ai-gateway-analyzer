@@ -23,13 +23,15 @@ storage:
   wal_checkpoint_interval: 1000
 
 # Cloudflare API pagination + parallel response-usage fetch knobs.
-# Cloudflare caps per_page at 50.
+# Cloudflare caps per_page at 50. Incremental sync uses sync_state
+# with a small overlap window so repeated agent runs are idempotent.
 sync:
   per_page: 50
   log_throttle_ms: 200
   usage_workers: 8
   usage_batch_size: 50
   retry_failed: true
+  incremental_overlap_minutes: 10
 
 # FastAPI control plane and panel hosting.
 # Set auth_token to require Bearer auth on every /api/v1/* route

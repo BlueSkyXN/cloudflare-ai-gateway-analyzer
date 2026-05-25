@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`cloudflare-ai-gateway-analyzer` is a Python 3.10+ tool that pulls Cloudflare AI Gateway log metadata into a single SQLite file, parses provider response usage, and serves a FastAPI control plane plus a React/Vite/TypeScript panel for local analytics.
+`cloudflare-ai-gateway-analyzer` is a Python 3.10+ tool that pulls Cloudflare AI Gateway log metadata into a local SQLite file, parses provider response usage, stores analytics-ready rows in one `log_events` fact table, and serves a FastAPI control plane plus a React/Vite/TypeScript panel for local analytics.
 
 ## Codex startup behavior
 
@@ -25,8 +25,8 @@
 | `src/cf_aigw_analyzer/cli/`         | Typer subcommands (split per file)                                                               | No              | When adding/altering subcommands or flags                                  |
 | `src/cf_aigw_analyzer/config/`      | Pydantic Settings, YAML loader, template renderer, redactor                                      | No              | When changing config schema, env precedence, or redaction                  |
 | `src/cf_aigw_analyzer/core/`        | httpx-based Cloudflare client, retry policy, parsers, sync engine                                | No              | When touching HTTP behaviour, retries, usage parsing, or sync orchestration |
-| `src/cf_aigw_analyzer/data/`        | SQLite schema, migrations, repositories, row models                                              | No              | Before any DB schema, index, or repository contract change                 |
-| `src/cf_aigw_analyzer/analytics/`   | Read-only SQL aggregations (summary, timeseries, models, context buckets, events, insights)     | No              | When changing aggregation logic or filter semantics                        |
+| `src/cf_aigw_analyzer/data/`        | SQLite schema v5, destructive migrations, repositories, row models                               | No              | Before any DB schema, index, or repository contract change                 |
+| `src/cf_aigw_analyzer/analytics/`   | Unified read-only SQL aggregation over `log_events`                                              | No              | When changing aggregation logic, filter semantics, or `/api/v1/analytics` payloads |
 | `src/cf_aigw_analyzer/control/`     | FastAPI app, routes, schemas, auth, lifespan, static panel hosting, async job registry          | No              | When adding routes, changing schemas, or modifying auth                    |
 | `src/cf_aigw_analyzer/models/`      | Shared enums (`FetchStatus`, `OutputFormat`, `LogFormat`)                                       | No              | When adding new domain enums                                               |
 | `src/cf_aigw_analyzer/utils/`       | Console helpers, time/path utilities                                                             | No              | When introducing utility primitives                                        |
@@ -36,7 +36,7 @@
 | `scripts/`                          | `seed_sqlite.py`, `smoke_local.py`, `generate_openapi.py`, `check_api.py`                       | No              | When adding new operational/CI helper scripts                              |
 | `docs/`                             | User + contributor documentation                                                                 | No              | When user-visible behaviour or interfaces change                           |
 | `Dockerfile`, `docker-compose.yml`, `entrypoint.sh` | Container build + runtime                                                            | No              | When changing the deployment surface                                       |
-| `local/`                            | Gitignored runtime data (SQLite, openapi.json, refactor notes, task tracker, review reports)    | No              | Do not commit. Inspect read-only.                                          |
+| `local/`                            | Gitignored runtime data, generated OpenAPI, runbooks, and local-only notes                       | No              | Do not commit. Auxiliary context only; tracked code/docs remain authoritative. |
 | `legacy/v0.2/`                      | Historical v0.2 source (Streamlit dashboard, urllib client). Reference only.                     | No              | **Do not modify.** Read for context only.                                  |
 | `config-example.yaml`, `.env.example` | Public configuration templates                                                                 | No              | Update together with schema changes                                        |
 
@@ -69,7 +69,9 @@
 - Frontend imports may use `@/` for `web/src`; keep `tsconfig.json` paths and `vite.config.ts` alias in sync.
 - All Cloudflare HTTP calls go through `cf_aigw_analyzer.core.http_client.HttpClient`. No new ad-hoc requests/urllib clients.
 - Repositories own all SQL writes. Analytics modules open the DB read-only.
-- Auth is uniform: `control.auth_token` non-empty → every `/api/v1/*` route requires Bearer, including GETs and `/docs`.
+- SQLite schema v5 intentionally uses `log_events` as the single analytics fact table and `log_raw` as the sanitized JSON side table.
+- `provider` is the only channel dimension. Do not add a `channel` column or API alias.
+- Auth is uniform: `control.auth_token` non-empty -> every `/api/v1/*` route requires Bearer, including GETs and `/docs`.
 - Sync trigger limits are positive integers only; `usage_workers` / `workers` stay within `1..64`.
 - Docker healthcheck must remain compatible with `CF_AIGW_CONTROL__AUTH_TOKEN`; do not add unauthenticated `/api/v1/health` exemptions.
 - Never persist request/response bodies. The sanitizer runs before any `raw_json` write.
@@ -77,12 +79,13 @@
 
 ## Validation policy
 
-- **Schema/repository change** → `pytest tests/unit/test_repository.py -v` + `pytest tests/unit/test_analytics.py`.
-- **Parser change** → `pytest tests/unit/test_usage_parser.py` + relevant integration tests.
-- **Route change** → `pytest tests/integration/test_control.py` + `python3 scripts/generate_openapi.py --output local/openapi.json` + `python3 scripts/check_api.py`; `local/openapi.json` is gitignored unless project policy changes.
-- **CLI change** → `pytest tests/integration/test_cli.py` + `python3 cli.py --help`.
-- **Frontend change** → `cd web && npm run lint && npm run build`. If the change is visible, also boot the panel via `python3 cli.py serve` and verify in a browser.
-- **Docker/compose change** → parse with `docker compose config` when Docker is available; otherwise at least verify YAML parsing and state Docker was unavailable.
+- **Schema/repository change** -> `pytest tests/unit/test_repository.py -v` + `pytest tests/unit/test_analytics.py`.
+- **Parser change** -> `pytest tests/unit/test_usage_parser.py` + relevant integration tests.
+- **Sync orchestration change** -> `pytest tests/integration/test_sync_engine.py` + relevant repository tests.
+- **Route change** -> `pytest tests/integration/test_control.py` + `python3 scripts/generate_openapi.py --output local/openapi.json` + `python3 scripts/check_api.py`; `local/openapi.json` is gitignored unless project policy changes.
+- **CLI change** -> `pytest tests/integration/test_cli.py` + `python3 cli.py --help`.
+- **Frontend change** -> `cd web && npm run lint && npm run build`. If the change is visible, also boot the panel with an isolated temp DB and verify in a browser.
+- **Docker/compose change** -> parse with `docker compose config` when Docker is available; otherwise at least verify YAML parsing and state Docker was unavailable.
 
 If a step cannot run (missing dependency, network unavailable), state that clearly in the final response.
 
@@ -90,6 +93,7 @@ If a step cannot run (missing dependency, network unavailable), state that clear
 
 - Do not commit `local/`, `config.yaml`, `web/dist/`, `web/node_modules/`, SQLite/WAL/SHM files, `.env`, TypeScript build info, Vite emitted config JS/DTS, or `legacy/v0.2/` edits.
 - Do not bypass `core.sanitizer.sanitize_log_metadata` for any reason.
+- Do not reintroduce the retired split analytics tables `logs`, `log_usage`, `log_metrics`, or `logs_raw`.
 - Do not introduce a new dashboard process. The only UI surface is `web/` + FastAPI.
 - Do not add a license claim. Licensing decision is the user's.
 - Do not run live Cloudflare smoke commands in CI/tests. Live validation belongs in `scripts/` with explicit credential checks.
@@ -100,7 +104,7 @@ If a step cannot run (missing dependency, network unavailable), state that clear
 Focused commits along these axes:
 
 1. Guardrails / packaging (`pyproject.toml`, `.gitignore`, requirements files).
-2. Implementation + tests (`src/`, `tests/`).
+2. Implementation + tests (`src/`, `tests`).
 3. Documentation + agent instructions (`README.md`, `docs/`, `AGENTS.md`, `CLAUDE.md`, `CHANGELOG.md`).
 
 Before each commit:
@@ -112,8 +116,6 @@ git diff --check
 
 ## Notes for future agents
 
-- `local/refactor/plan.md` documents the v0.3 rewrite plan and decision log.
-- `local/task-tracker.md` tracks the YOLO-mode execution that produced v0.3.
-- `local/copilot-check.md` carries the post-rewrite code review report.
-- `CHANGELOG.md` records the public diff between v0.2 and v0.3.
+- `local/` may contain gitignored runbooks, generated OpenAPI snapshots, SQLite files, and scratch reports. Treat it as local context only; do not use it as the source of truth for commands, schema, API contracts, or roadmap status.
+- `CHANGELOG.md` records public changes across released and unreleased versions.
 - `CLAUDE.md` is project-level guidance for Claude/AI assistants.

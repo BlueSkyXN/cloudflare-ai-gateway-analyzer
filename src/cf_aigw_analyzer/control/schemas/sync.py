@@ -18,6 +18,7 @@ class SyncTriggerRequest(BaseModel):
     no_retry_failed: bool = False
     usage_workers: int | None = Field(default=None, ge=1, le=64)
     usage_limit: int | None = Field(default=None, ge=1)
+    incremental: bool = False
     filters: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -27,12 +27,7 @@ ENDPOINTS = (
     "/api/v1/health",
     "/api/v1/scopes",
     "/api/v1/status",
-    "/api/v1/analytics/summary",
-    "/api/v1/analytics/timeseries",
-    "/api/v1/analytics/models",
-    "/api/v1/analytics/context-buckets",
-    "/api/v1/analytics/insights",
-    "/api/v1/events",
+    "/api/v1/analytics",
     "/api/v1/config",
 )
 

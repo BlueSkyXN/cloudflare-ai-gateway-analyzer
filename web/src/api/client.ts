@@ -1,17 +1,12 @@
 import type {
   AnalyticsFilters,
+  AnalyticsResponse,
   ConfigResponse,
-  ContextBucket,
-  EventsResponse,
-  InsightItem,
-  ModelStats,
   ScopeItem,
   StatusResponse,
-  SummaryResponse,
   SyncJobSnapshot,
   SyncRunSnapshot,
   SyncTriggerResponse,
-  TimeseriesPoint,
 } from "./types";
 
 const API_BASE = "/api/v1";
@@ -27,10 +22,7 @@ function toQueryString(filters: AnalyticsFilters | undefined): string {
   return text ? `?${text}` : "";
 }
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("cf-aigw-token");
   const headers = new Headers(options.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -55,18 +47,8 @@ async function request<T>(
 export const api = {
   health: () => request<{ status: string; version: string }>("/health"),
   scopes: () => request<ScopeItem[]>("/scopes"),
-  summary: (filters: AnalyticsFilters) =>
-    request<SummaryResponse>(`/analytics/summary${toQueryString(filters)}`),
-  timeseries: (filters: AnalyticsFilters) =>
-    request<TimeseriesPoint[]>(`/analytics/timeseries${toQueryString(filters)}`),
-  models: (filters: AnalyticsFilters) =>
-    request<ModelStats[]>(`/analytics/models${toQueryString(filters)}`),
-  contextBuckets: (filters: AnalyticsFilters) =>
-    request<ContextBucket[]>(`/analytics/context-buckets${toQueryString(filters)}`),
-  insights: (filters: AnalyticsFilters) =>
-    request<InsightItem[]>(`/analytics/insights${toQueryString(filters)}`),
-  events: (filters: AnalyticsFilters & { limit?: number }) =>
-    request<EventsResponse>(`/events${toQueryString(filters)}`),
+  analytics: (filters: AnalyticsFilters) =>
+    request<AnalyticsResponse>(`/analytics${toQueryString(filters)}`),
   status: (filters: { account_id?: string; gateway_id?: string }) =>
     request<StatusResponse>(`/status${toQueryString(filters)}`),
   config: () => request<ConfigResponse>("/config"),

@@ -6,22 +6,22 @@ export default {
     extend: {
       colors: {
         bg: {
-          DEFAULT: "#0b0f17",
-          panel: "#111826",
-          subtle: "#1a2030",
+          DEFAULT: "rgb(var(--color-bg) / <alpha-value>)",
+          panel: "rgb(var(--color-bg-panel) / <alpha-value>)",
+          subtle: "rgb(var(--color-bg-subtle) / <alpha-value>)",
         },
-        line: "#202737",
+        line: "rgb(var(--color-line) / <alpha-value>)",
         accent: {
-          DEFAULT: "#f97316",
-          hover: "#fb923c",
+          DEFAULT: "rgb(var(--color-accent) / <alpha-value>)",
+          hover: "rgb(var(--color-accent-hover) / <alpha-value>)",
         },
-        success: "#22c55e",
-        warning: "#f59e0b",
-        danger: "#ef4444",
-        muted: "#7b8aa1",
+        success: "rgb(var(--color-success) / <alpha-value>)",
+        warning: "rgb(var(--color-warning) / <alpha-value>)",
+        danger: "rgb(var(--color-danger) / <alpha-value>)",
+        muted: "rgb(var(--color-muted) / <alpha-value>)",
         text: {
-          DEFAULT: "#e5ecf4",
-          dim: "#9aa4b8",
+          DEFAULT: "rgb(var(--color-text) / <alpha-value>)",
+          dim: "rgb(var(--color-text-dim) / <alpha-value>)",
         },
       },
       fontFamily: {

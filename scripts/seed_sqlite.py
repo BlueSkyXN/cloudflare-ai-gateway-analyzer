@@ -89,7 +89,7 @@ def main() -> int:
 
         for log in logs:
             if not log["success"]:
-                db.usage.upsert(
+                db.logs.upsert_usage(
                     args.account,
                     args.gateway,
                     log["id"],
@@ -108,7 +108,7 @@ def main() -> int:
                 reasoning_tokens=reasoning,
                 source="usage",
             )
-            db.usage.upsert(
+            db.logs.upsert_usage(
                 args.account,
                 args.gateway,
                 log["id"],
@@ -117,7 +117,6 @@ def main() -> int:
                 200,
                 None,
             )
-            db.metrics.refresh_usage_dependent(args.account, args.gateway, log["id"], usage)
 
         db.sync_runs.record(
             args.account,
