@@ -1,6 +1,6 @@
 """SQLite schema definition for the analyzer.
 
-Schema version 5 layout (single fact table + raw JSON side table):
+Schema version 6 layout (single fact table + raw JSON side table):
 
 * ``gateways``       — gateway metadata (1 row per gateway)
 * ``log_events``     — one analytics-ready row per Cloudflare AI Gateway log
@@ -16,7 +16,7 @@ Schema version 5 layout (single fact table + raw JSON side table):
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 PRAGMAS = (
     "PRAGMA foreign_keys=ON",
@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS log_events (
     latency_ms             REAL,
     total_ms               REAL,
     generation_ms          REAL,
+    input_tps              REAL,
     output_tps             REAL,
     ms_per_output_token    REAL,
     visible_output_tokens  INTEGER,

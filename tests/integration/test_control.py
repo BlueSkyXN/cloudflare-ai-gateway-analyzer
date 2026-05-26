@@ -108,6 +108,7 @@ async def test_analytics(client: httpx.AsyncClient) -> None:
     assert body["summary"]["requests"] == 2
     assert body["summary"]["success_count"] == 1
     assert body["summary"]["total_tokens"] == 120_150
+    assert body["summary"]["avg_input_tps"] == pytest.approx((500 + 150_000) / 2)
     assert isinstance(body["timeseries"], list)
     assert isinstance(body["by_model"], list)
     assert body["filter_options"]["providers"] == [
@@ -115,6 +116,27 @@ async def test_analytics(client: httpx.AsyncClient) -> None:
         {"provider": "openai", "requests": 1},
     ]
     assert {item["log_id"] for item in body["events"]} == {"log-1", "log-2"}
+
+
+@pytest.mark.asyncio
+async def test_analytics_timeseries_bucket_options(client: httpx.AsyncClient) -> None:
+    response = await client.get(
+        "/api/v1/analytics",
+        params={
+            "account_id": "acct",
+            "gateway_id": "gw",
+            "timeseries_bucket_hours": 4,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["timeseries"]) == 1
+    point = body["timeseries"][0]
+    assert point["hour"] == "2026-05-22T00:00:00Z"
+    assert point["requests"] == 2
+    assert point["rpm"] == pytest.approx(2 / 240, rel=1e-6)
+    assert point["tpm"] == pytest.approx(120_150 / 240, rel=1e-6)
+    assert point["avg_input_tps"] == pytest.approx((500 + 150_000) / 2)
 
 
 @pytest.mark.asyncio

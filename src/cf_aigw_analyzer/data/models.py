@@ -44,6 +44,7 @@ class LogEventRow(_Row):
     latency_ms: float | None = None
     total_ms: float | None = None
     generation_ms: float | None = None
+    input_tps: float | None = None
     output_tps: float | None = None
     ms_per_output_token: float | None = None
     visible_output_tokens: int | None = None
@@ -109,6 +110,7 @@ class MetricsFields(BaseModel):
     latency_ms: float | None = None
     total_ms: float | None = None
     generation_ms: float | None = None
+    input_tps: float | None = None
     output_tps: float | None = None
     ms_per_output_token: float | None = None
     visible_output_tokens: int | None = None

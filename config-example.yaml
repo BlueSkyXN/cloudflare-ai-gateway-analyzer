@@ -38,7 +38,8 @@ sync:
 # (including read-only GETs). Empty token + loopback host = open.
 control:
   host: 127.0.0.1
-  port: 8765
+  # 留空时自动使用高位随机端口（49152-65535）。
+  port: null
   auth_token: null
   expose_docs: true
   cors_origins: []

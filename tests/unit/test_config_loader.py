@@ -22,7 +22,7 @@ def test_defaults_when_no_yaml(isolated_env, tmp_path, monkeypatch):
     assert isinstance(settings, Settings)
     assert settings.cloudflare.api_token is None
     assert settings.control.host == "127.0.0.1"
-    assert settings.control.port == 8765
+    assert settings.control.port is None
     assert settings.sync.per_page == 50
     assert settings.has_credentials() is False
 
@@ -90,7 +90,7 @@ def test_render_template_round_trip_is_valid_yaml(isolated_env):
     data = yaml.safe_load(rendered)
     assert "cloudflare" in data
     assert "control" in data
-    assert data["control"]["port"] == 8765
+    assert data["control"]["port"] is None
     # Public template must not leak Pydantic's secret mask.
     assert "**********" not in rendered
 

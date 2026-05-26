@@ -26,6 +26,7 @@ class SummaryResponse(BaseModel):
     p50_total_ms: float | None
     p95_total_ms: float | None
     p99_total_ms: float | None
+    avg_input_tps: float | None
     avg_output_tps: float | None
     avg_visible_output_tps: float | None
     usage_statuses: dict[str, int]
@@ -43,6 +44,7 @@ class TimeseriesPoint(BaseModel):
     avg_total_ms: float | None
     avg_latency_ms: float | None
     avg_generation_ms: float | None
+    avg_input_tps: float | None
     avg_output_tps: float | None
     avg_visible_output_tps: float | None
 
@@ -63,6 +65,7 @@ class BreakdownStats(BaseModel):
     avg_total_ms: float | None
     avg_latency_ms: float | None
     avg_generation_ms: float | None
+    avg_input_tps: float | None
     avg_output_tps: float | None
     avg_visible_output_tps: float | None
 
@@ -98,6 +101,7 @@ class EventItem(BaseModel):
     latency_ms: float | None = None
     total_ms: float | None = None
     generation_ms: float | None = None
+    input_tps: float | None = None
     output_tps: float | None = None
     ms_per_output_token: float | None = None
     visible_output_tokens: int | None = None

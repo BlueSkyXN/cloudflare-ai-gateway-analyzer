@@ -42,6 +42,7 @@ DEFAULT_COLUMNS = (
     "latency_ms",
     "total_ms",
     "generation_ms",
+    "input_tps",
     "output_tps",
     "usage_fetch_status",
 )

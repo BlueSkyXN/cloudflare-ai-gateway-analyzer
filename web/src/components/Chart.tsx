@@ -1,6 +1,6 @@
 import { BarChart, LineChart, ScatterChart } from "echarts/charts";
 import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
-import { init, use, type EChartsCoreOption, type EChartsType } from "echarts/core";
+import { connect, init, use, type EChartsCoreOption, type EChartsType } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import { useEffect, useMemo, useRef } from "react";
 
@@ -36,6 +36,7 @@ const palettes = {
 type Props = {
   option: Record<string, unknown>;
   height?: number;
+  group?: string;
 };
 
 function styleAxis(axis: unknown, theme: ThemeMode): unknown {
@@ -83,7 +84,7 @@ function buildOption(option: Record<string, unknown>, theme: ThemeMode): Record<
   return result;
 }
 
-export function Chart({ option, height = 280 }: Props) {
+export function Chart({ option, height = 280, group }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<EChartsType | null>(null);
   const theme = useUiPreferences((s) => s.theme);
@@ -94,6 +95,8 @@ export function Chart({ option, height = 280 }: Props) {
 
     const chart = init(containerRef.current, undefined, { renderer: "canvas" });
     const observer = new ResizeObserver(() => chart.resize());
+    if (group) chart.group = group;
+    if (group) connect(group);
     chartRef.current = chart;
     observer.observe(containerRef.current);
 
@@ -102,7 +105,7 @@ export function Chart({ option, height = 280 }: Props) {
       chart.dispose();
       chartRef.current = null;
     };
-  }, []);
+  }, [group]);
 
   useEffect(() => {
     chartRef.current?.setOption(themedOption as EChartsCoreOption, {

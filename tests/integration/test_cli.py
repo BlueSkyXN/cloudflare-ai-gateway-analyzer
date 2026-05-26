@@ -52,7 +52,7 @@ def test_config_show_yaml(project_root: Path) -> None:
     result = runner.invoke(app, ["config", "show"])
     assert result.exit_code == 0
     assert "control:" in result.stdout
-    assert "port: 8765" in result.stdout
+    assert "port: null" in result.stdout
 
 
 def test_config_validate_without_credentials_warns(

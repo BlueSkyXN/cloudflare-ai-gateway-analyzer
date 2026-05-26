@@ -25,7 +25,7 @@
 | `src/cf_aigw_analyzer/cli/`         | Typer subcommands (split per file)                                                               | No              | When adding/altering subcommands or flags                                  |
 | `src/cf_aigw_analyzer/config/`      | Pydantic Settings, YAML loader, template renderer, redactor                                      | No              | When changing config schema, env precedence, or redaction                  |
 | `src/cf_aigw_analyzer/core/`        | httpx-based Cloudflare client, retry policy, parsers, sync engine                                | No              | When touching HTTP behaviour, retries, usage parsing, or sync orchestration |
-| `src/cf_aigw_analyzer/data/`        | SQLite schema v5, destructive migrations, repositories, row models                               | No              | Before any DB schema, index, or repository contract change                 |
+| `src/cf_aigw_analyzer/data/`        | SQLite schema v6, migrations, repositories, row models                                          | No              | Before any DB schema, index, or repository contract change                 |
 | `src/cf_aigw_analyzer/analytics/`   | Unified read-only SQL aggregation over `log_events`                                              | No              | When changing aggregation logic, filter semantics, or `/api/v1/analytics` payloads |
 | `src/cf_aigw_analyzer/control/`     | FastAPI app, routes, schemas, auth, lifespan, static panel hosting, async job registry          | No              | When adding routes, changing schemas, or modifying auth                    |
 | `src/cf_aigw_analyzer/models/`      | Shared enums (`FetchStatus`, `OutputFormat`, `LogFormat`)                                       | No              | When adding new domain enums                                               |
@@ -69,7 +69,7 @@
 - Frontend imports may use `@/` for `web/src`; keep `tsconfig.json` paths and `vite.config.ts` alias in sync.
 - All Cloudflare HTTP calls go through `cf_aigw_analyzer.core.http_client.HttpClient`. No new ad-hoc requests/urllib clients.
 - Repositories own all SQL writes. Analytics modules open the DB read-only.
-- SQLite schema v5 intentionally uses `log_events` as the single analytics fact table and `log_raw` as the sanitized JSON side table.
+- SQLite schema v6 keeps `log_events` as the single analytics fact table and `log_raw` as the sanitized JSON side table.
 - `provider` is the only channel dimension. Do not add a `channel` column or API alias.
 - Auth is uniform: `control.auth_token` non-empty -> every `/api/v1/*` route requires Bearer, including GETs and `/docs`.
 - Sync trigger limits are positive integers only; `usage_workers` / `workers` stay within `1..64`.

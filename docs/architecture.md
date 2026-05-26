@@ -46,7 +46,7 @@ The Python package mirrors the runtime layers exactly:
 
 1. `accounts` + `gateways` discover Cloudflare resources and cache gateway metadata.
 2. `sync` paginates `GET /accounts/.../logs`, sanitizes each row, and writes `log_events` plus `log_raw`.
-3. `compute_log_metrics` remains a pure function; derived timing and TPS fields are stored directly on `log_events`.
+3. `compute_log_metrics` remains a pure function; derived timing and input/output TPS fields are stored directly on `log_events`.
 4. `sync-usage` lists rows whose `usage_fetch_status` needs work, fetches `/response` concurrently, parses provider usage shapes, and updates the same `log_events` row.
 5. `query`, `status`, and the analytics layer read from `log_events` instead of joining separate usage/metrics tables.
 6. The dashboard calls `GET /api/v1/analytics`; the response includes summary, time series, provider/model breakdowns, events, and filter options.

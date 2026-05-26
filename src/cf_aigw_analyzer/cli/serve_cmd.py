@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import typer
 
+from cf_aigw_analyzer.config.settings import random_control_port
 from cf_aigw_analyzer.cli._common import ConfigOption, console, load
 
 
@@ -23,7 +24,9 @@ def serve(
 
     settings = load(config)
     bind_host = host or settings.control.host
-    bind_port = port or settings.control.port
+    bind_port = port if port is not None else settings.control.port
+    if bind_port is None:
+        bind_port = random_control_port()
 
     try:
         import uvicorn

@@ -28,6 +28,7 @@ export type SummaryResponse = {
   p50_total_ms: number | null;
   p95_total_ms: number | null;
   p99_total_ms: number | null;
+  avg_input_tps: number | null;
   avg_output_tps: number | null;
   avg_visible_output_tps: number | null;
   usage_statuses: Record<string, number>;
@@ -45,6 +46,7 @@ export type TimeseriesPoint = {
   avg_total_ms: number | null;
   avg_latency_ms: number | null;
   avg_generation_ms: number | null;
+  avg_input_tps: number | null;
   avg_output_tps: number | null;
   avg_visible_output_tps: number | null;
 };
@@ -66,6 +68,7 @@ export type BreakdownStats = {
   avg_total_ms: number | null;
   avg_latency_ms: number | null;
   avg_generation_ms: number | null;
+  avg_input_tps: number | null;
   avg_output_tps: number | null;
   avg_visible_output_tps: number | null;
 };
@@ -121,6 +124,7 @@ export type EventItem = {
   latency_ms: number | null;
   total_ms: number | null;
   generation_ms: number | null;
+  input_tps: number | null;
   output_tps: number | null;
   ms_per_output_token: number | null;
   visible_output_tokens: number | null;
@@ -180,6 +184,7 @@ export type AnalyticsFilters = {
   provider?: string;
   model?: string;
   success?: boolean;
+  timeseries_bucket_hours?: 1 | 4 | 8 | 12 | 24;
   limit?: number;
 };
 

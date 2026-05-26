@@ -73,7 +73,8 @@ overlap.
 ```yaml
 control:
   host: 127.0.0.1
-  port: 8765
+  # 留空时自动使用 49152-65535 的高位随机端口。
+  port: null
   auth_token: ~       # set to any string to require Bearer auth on all /api/v1/*
   expose_docs: true
   cors_origins: []

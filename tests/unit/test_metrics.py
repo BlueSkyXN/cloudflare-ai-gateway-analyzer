@@ -12,6 +12,7 @@ def test_full_metric_chain_from_timings() -> None:
         {
             "duration": 1500.0,
             "timings": {"total": 2500.0, "latency": 400.0},
+            "tokens_in": 100,
             "tokens_out": 21,
             "_reasoning_tokens": 7,
         }
@@ -19,6 +20,7 @@ def test_full_metric_chain_from_timings() -> None:
     assert metrics.total_ms == 2500.0
     assert metrics.latency_ms == 400.0
     assert metrics.generation_ms == 2100.0
+    assert pytest.approx(metrics.input_tps, rel=1e-3) == 250.0
     assert pytest.approx(metrics.output_tps, rel=1e-3) == 10.0
     assert pytest.approx(metrics.ms_per_output_token, rel=1e-3) == 100.0
     assert metrics.visible_output_tokens == 14
@@ -27,9 +29,10 @@ def test_full_metric_chain_from_timings() -> None:
 
 def test_zero_generation_ms_skips_tps() -> None:
     metrics = compute_log_metrics(
-        {"timings": {"total": 500.0, "latency": 500.0}, "tokens_out": 100}
+        {"timings": {"total": 500.0, "latency": 500.0}, "tokens_in": 100, "tokens_out": 100}
     )
     assert metrics.generation_ms == 0.0
+    assert metrics.input_tps == 200.0
     assert metrics.output_tps is None
     assert metrics.ms_per_output_token is None
 
@@ -43,11 +46,12 @@ def test_missing_timings_falls_back_to_duration() -> None:
 
 def test_handles_string_numeric_fields() -> None:
     metrics = compute_log_metrics(
-        {"timings": {"total": "1000", "latency": "100"}, "tokens_out": "10"}
+        {"timings": {"total": "1000", "latency": "100"}, "tokens_in": "50", "tokens_out": "10"}
     )
     assert metrics.total_ms == 1000.0
     assert metrics.latency_ms == 100.0
     assert metrics.generation_ms == 900.0
+    assert pytest.approx(metrics.input_tps, rel=1e-3) == 500.0
     assert pytest.approx(metrics.output_tps, rel=1e-3) == 10 / 0.9
 
 
@@ -57,12 +61,15 @@ def test_explicit_overrides_win() -> None:
             "_total_ms": 3000,
             "_latency_ms": 500,
             "_generation_ms": 2500,
+            "_input_tps": 15.5,
             "_output_tps": 7.5,
+            "tokens_in": 100,
             "tokens_out": 25,
         }
     )
     assert metrics.total_ms == 3000.0
     assert metrics.latency_ms == 500.0
     assert metrics.generation_ms == 2500.0
+    assert metrics.input_tps == 15.5
     assert metrics.output_tps == 7.5
     assert metrics.ms_per_output_token == 100.0

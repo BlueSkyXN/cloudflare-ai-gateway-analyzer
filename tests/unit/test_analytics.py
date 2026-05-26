@@ -116,6 +116,7 @@ def test_unified_analytics_payload(populated_db: Path) -> None:
     assert summary["cached_tokens"] == 60
     assert summary["success_rate"] == pytest.approx(2 / 3, rel=1e-3)
     assert summary["cache_ratio"] == pytest.approx(60 / 120_300, rel=1e-3)
+    assert summary["avg_input_tps"] == pytest.approx((500 + (200 / 0.3) + 120_000) / 3)
     assert summary["p95_total_ms"] is not None
     assert summary["usage_statuses"]["parsed"] == 3
 
@@ -125,12 +126,14 @@ def test_unified_analytics_payload(populated_db: Path) -> None:
     ]
     assert payload["timeseries"][0]["requests"] == 2
     assert payload["timeseries"][0]["rpm"] == pytest.approx(2 / 60, rel=1e-3)
+    assert payload["timeseries"][0]["avg_input_tps"] == pytest.approx((500 + (200 / 0.3)) / 2)
 
     assert [item["model"] for item in payload["by_model"]] == ["model-fast", "model-deep"]
     fast = payload["by_model"][0]
     assert fast["requests"] == 2
     assert fast["success_rate"] == 1.0
     assert fast["cache_ratio"] == pytest.approx(60 / 300, rel=1e-3)
+    assert fast["avg_input_tps"] == pytest.approx((500 + (200 / 0.3)) / 2)
     assert fast["providers"] == ["openai"]
 
     assert payload["filter_options"]["providers"] == [
@@ -145,7 +148,21 @@ def test_unified_analytics_payload(populated_db: Path) -> None:
 
     assert len(payload["events"]) == 2
     assert payload["events"][0]["log_id"] == "big-1"
+    assert payload["events"][0]["input_tps"] == pytest.approx(120_000)
     assert "raw_json" not in payload["events"][0]
+
+
+def test_analytics_supports_custom_timeseries_buckets(populated_db: Path) -> None:
+    with open_readonly_connection(populated_db) as conn:
+        payload = build_analytics(
+            conn,
+            AnalyticsFilters(account_id="acct", gateway_id="gw", timeseries_bucket_hours=4),
+            limit=2,
+        )
+
+    assert [item["hour"] for item in payload["timeseries"]] == ["2026-05-22T00:00:00Z"]
+    assert payload["timeseries"][0]["requests"] == 3
+    assert payload["timeseries"][0]["rpm"] == pytest.approx(3 / 240, rel=1e-3)
 
 
 def test_summary_empty_when_no_data(tmp_path: Path) -> None:

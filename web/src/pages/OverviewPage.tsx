@@ -50,7 +50,7 @@ export function OverviewPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <section className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <KpiCard label="请求数" value={formatInt(summary?.requests)} />
         <KpiCard
           label="成功率"
@@ -59,7 +59,8 @@ export function OverviewPage() {
         />
         <KpiCard label="总 Tokens" value={formatInt(summary?.total_tokens)} />
         <KpiCard label="平均总耗时" value={formatDuration(summary?.avg_total_ms)} />
-        <KpiCard label="平均 output TPS" value={formatFloat(summary?.avg_output_tps)} />
+        <KpiCard label="平均输入 TPS" value={formatFloat(summary?.avg_input_tps)} />
+        <KpiCard label="平均输出 TPS" value={formatFloat(summary?.avg_output_tps)} />
         <KpiCard label="输入 Tokens" value={formatInt(summary?.input_tokens)} />
         <KpiCard label="输出 Tokens" value={formatInt(summary?.output_tokens)} />
         <KpiCard label="推理 Tokens" value={formatInt(summary?.reasoning_tokens)} />

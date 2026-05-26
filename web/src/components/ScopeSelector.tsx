@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react";
 import clsx from "clsx";
 
 import { useFilterOptions, useScopes } from "@/hooks/queries";
-import { useFilters, type TimeRange } from "@/store/filters";
+import { useFilters, type TimeseriesBucketHours, type TimeRange } from "@/store/filters";
 import { formatInt, shortenId } from "@/utils/format";
 
 const TIME_RANGES = [
@@ -12,6 +12,14 @@ const TIME_RANGES = [
   { value: "30d", label: "30 天" },
   { value: "custom", label: "自定义" },
 ] satisfies Array<{ value: TimeRange; label: string }>;
+
+const TIME_SERIES_BUCKETS = [
+  { value: 1, label: "1 小时" },
+  { value: 4, label: "4 小时" },
+  { value: 8, label: "8 小时" },
+  { value: 12, label: "12 小时" },
+  { value: 24, label: "24 小时" },
+] satisfies Array<{ value: TimeseriesBucketHours; label: string }>;
 
 function toDatetimeLocalInput(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -35,6 +43,8 @@ export function ScopeSelector() {
   const setScope = useFilters((s) => s.setScope);
   const timeRange = useFilters((s) => s.timeRange);
   const setTimeRange = useFilters((s) => s.setTimeRange);
+  const timeseriesBucketHours = useFilters((s) => s.timeseriesBucketHours);
+  const setTimeseriesBucketHours = useFilters((s) => s.setTimeseriesBucketHours);
   const customStart = useFilters((s) => s.customStart);
   const customEnd = useFilters((s) => s.customEnd);
   const setCustomRange = useFilters((s) => s.setCustomRange);
@@ -167,6 +177,29 @@ export function ScopeSelector() {
           )}
         </div>
         {customInvalid && <span className="text-xs text-danger">结束时间不能早于开始时间。</span>}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium text-text-dim">时间聚合</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-md border border-line bg-bg-subtle p-0.5">
+            {TIME_SERIES_BUCKETS.map((bucket) => (
+              <button
+                key={bucket.value}
+                type="button"
+                onClick={() => setTimeseriesBucketHours(bucket.value)}
+                className={clsx(
+                  "px-2.5 py-1.5 text-sm rounded whitespace-nowrap transition-colors",
+                  timeseriesBucketHours === bucket.value
+                    ? "bg-bg-panel text-text shadow-sm"
+                    : "text-text-dim hover:text-text"
+                )}
+              >
+                {bucket.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-col gap-2 xl:col-span-2">

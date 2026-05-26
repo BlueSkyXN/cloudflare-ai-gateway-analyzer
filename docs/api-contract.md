@@ -41,10 +41,13 @@ The current analytics contract is a single route:
 Query parameters:
 
 ```text
-account_id, gateway_id, start_date, end_date, provider, model, success, limit
+account_id, gateway_id, start_date, end_date, provider, model, success,
+timeseries_bucket_hours, limit
 ```
 
 - `provider` is the channel dimension displayed as “渠道” in the UI.
+- `timeseries_bucket_hours` controls the `timeseries` aggregation step and must be one of `1`, `4`, `8`, `12`, `24`
+  (hours). It defaults to `1`.
 - `limit` controls the number of recent `events` returned. It defaults to 500 and is capped at 5000.
 - Dates accept `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM:SS[Z]`, or `YYYY/MM/DD`.
 - Strings are passed as-is; booleans accept `true` / `false`.
@@ -53,8 +56,8 @@ Response sections:
 
 | Section          | Description                                                                                   |
 | ---------------- | --------------------------------------------------------------------------------------------- |
-| `summary`        | Request count, success rate, model/provider count, token totals, cache ratio, latency percentiles, average TPS, usage status counts. |
-| `timeseries`     | Hourly request/token/latency/TPS series.                                                       |
+| `summary`        | Request count, success rate, model/provider count, token totals, cache ratio, latency percentiles, average input/output TPS, usage status counts. |
+| `timeseries`     | request/token/latency/input and output TPS series aggregated by `timeseries_bucket_hours` (1/4/8/12/24h). |
 | `by_provider`    | Provider-level breakdown.                                                                      |
 | `by_model`       | Model-level breakdown with provider list and p95 total latency.                                |
 | `events`         | Recent `log_events` rows with usage, timing, status, and TPS fields.                           |

@@ -47,6 +47,7 @@ def build_summary(conn: sqlite3.Connection, filters: AnalyticsFilters) -> dict[s
             AVG(e.total_ms) AS avg_total_ms,
             AVG(e.latency_ms) AS avg_latency_ms,
             AVG(e.generation_ms) AS avg_generation_ms,
+            AVG(e.input_tps) AS avg_input_tps,
             AVG(e.output_tps) AS avg_output_tps,
             AVG(e.visible_output_tps) AS avg_visible_output_tps
         {base}
@@ -89,6 +90,7 @@ def build_summary(conn: sqlite3.Connection, filters: AnalyticsFilters) -> dict[s
         "p50_total_ms": percentiles[0],
         "p95_total_ms": percentiles[1],
         "p99_total_ms": percentiles[2],
+        "avg_input_tps": _maybe_float(aggregates["avg_input_tps"]),
         "avg_output_tps": _maybe_float(aggregates["avg_output_tps"]),
         "avg_visible_output_tps": _maybe_float(aggregates["avg_visible_output_tps"]),
         "usage_statuses": {row["status"]: int(row["n"]) for row in statuses},
@@ -97,10 +99,19 @@ def build_summary(conn: sqlite3.Connection, filters: AnalyticsFilters) -> dict[s
 
 def build_timeseries(conn: sqlite3.Connection, filters: AnalyticsFilters) -> list[dict[str, Any]]:
     where, params = build_where(filters)
+    bucket_hours = _normalize_bucket_hours(filters.timeseries_bucket_hours)
+    bucket_seconds = bucket_hours * 60 * 60
+    bucket_expr = """
+        REPLACE(
+            datetime((CAST(strftime('%s', e.created_at) AS INTEGER) / ?) * ?, 'unixepoch'),
+            ' ',
+            'T'
+        ) || 'Z'
+    """
     rows = conn.execute(
         f"""
         SELECT
-            substr(e.created_at, 1, 13) || ':00:00Z' AS hour,
+            e.bucket AS hour,
             COUNT(*) AS requests,
             SUM(CASE WHEN e.success = 1 THEN 1 ELSE 0 END) AS success_count,
             SUM(COALESCE(e.input_tokens, 0)) AS input_tokens,
@@ -110,15 +121,20 @@ def build_timeseries(conn: sqlite3.Connection, filters: AnalyticsFilters) -> lis
             AVG(e.total_ms) AS avg_total_ms,
             AVG(e.latency_ms) AS avg_latency_ms,
             AVG(e.generation_ms) AS avg_generation_ms,
+            AVG(e.input_tps) AS avg_input_tps,
             AVG(e.output_tps) AS avg_output_tps,
             AVG(e.visible_output_tps) AS avg_visible_output_tps
-        FROM log_events e
-        {where}
-        GROUP BY substr(e.created_at, 1, 13)
+        FROM (
+            SELECT e.*, {bucket_expr} AS bucket
+            FROM log_events e
+            {where}
+        ) e
+        GROUP BY e.bucket
         ORDER BY hour ASC
         """,
-        params,
+        [bucket_seconds, bucket_seconds, *params],
     ).fetchall()
+    bucket_minutes = float(bucket_hours * 60)
     output: list[dict[str, Any]] = []
     for row in rows:
         requests = int(row["requests"] or 0)
@@ -131,16 +147,23 @@ def build_timeseries(conn: sqlite3.Connection, filters: AnalyticsFilters) -> lis
                 "input_tokens": int(row["input_tokens"] or 0),
                 "output_tokens": int(row["output_tokens"] or 0),
                 "total_tokens": total_tokens,
-                "rpm": requests / 60.0,
-                "tpm": total_tokens / 60.0,
+                "rpm": requests / bucket_minutes,
+                "tpm": total_tokens / bucket_minutes,
                 "avg_total_ms": _maybe_float(row["avg_total_ms"]),
                 "avg_latency_ms": _maybe_float(row["avg_latency_ms"]),
                 "avg_generation_ms": _maybe_float(row["avg_generation_ms"]),
+                "avg_input_tps": _maybe_float(row["avg_input_tps"]),
                 "avg_output_tps": _maybe_float(row["avg_output_tps"]),
                 "avg_visible_output_tps": _maybe_float(row["avg_visible_output_tps"]),
             }
         )
     return output
+
+
+def _normalize_bucket_hours(hours: int | None) -> int:
+    if hours in (1, 4, 8, 12, 24):
+        return int(hours)
+    return 1
 
 
 def build_provider_stats(
@@ -184,6 +207,7 @@ def _breakdown(
             AVG(e.total_ms) AS avg_total_ms,
             AVG(e.latency_ms) AS avg_latency_ms,
             AVG(e.generation_ms) AS avg_generation_ms,
+            AVG(e.input_tps) AS avg_input_tps,
             AVG(e.output_tps) AS avg_output_tps,
             AVG(e.visible_output_tps) AS avg_visible_output_tps
         FROM log_events e
@@ -218,6 +242,7 @@ def _breakdown(
             "avg_total_ms": _maybe_float(row["avg_total_ms"]),
             "avg_latency_ms": _maybe_float(row["avg_latency_ms"]),
             "avg_generation_ms": _maybe_float(row["avg_generation_ms"]),
+            "avg_input_tps": _maybe_float(row["avg_input_tps"]),
             "avg_output_tps": _maybe_float(row["avg_output_tps"]),
             "avg_visible_output_tps": _maybe_float(row["avg_visible_output_tps"]),
         }
@@ -297,6 +322,7 @@ def build_recent_events(
             e.latency_ms,
             e.total_ms,
             e.generation_ms,
+            e.input_tps,
             e.output_tps,
             e.ms_per_output_token,
             e.visible_output_tokens,

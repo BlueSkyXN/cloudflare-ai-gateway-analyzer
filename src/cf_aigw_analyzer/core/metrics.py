@@ -1,4 +1,4 @@
-"""Per-log derived metrics: latency split, throughput, visible-output adjusted TPS."""
+"""Per-log derived metrics: latency split, input/output throughput, visible output."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ def compute_log_metrics(log: dict[str, Any]) -> MetricsFields:
     * ``total_ms`` = log.timings.total or log._total_ms or duration
     * ``latency_ms`` = log.timings.latency or log._latency_ms
     * ``generation_ms`` = log._generation_ms or (total - latency)
+    * ``input_tps`` = input_tokens / (latency_ms / 1000) when both known
     * ``output_tps`` = output_tokens / (generation_ms / 1000) when both known
     * ``ms_per_output_token`` = generation_ms / output_tokens (when positive)
     * ``visible_output_tokens`` = output_tokens - reasoning_tokens (floor at 0)
@@ -31,10 +32,15 @@ def compute_log_metrics(log: dict[str, Any]) -> MetricsFields:
     if generation_ms is None and total_ms is not None and latency_ms is not None:
         generation_ms = max(total_ms - latency_ms, 0.0)
 
-    output_tokens = _as_float(log.get("tokens_out"))
+    input_tokens = _as_float(log.get("tokens_in", log.get("input_tokens")))
+    output_tokens = _as_float(log.get("tokens_out", log.get("output_tokens")))
     reasoning_tokens = _as_float(log.get("_reasoning_tokens"))
+    input_tps = _as_float(log.get("_input_tps"))
     output_tps = _as_float(log.get("_output_tps"))
     ms_per_output_token: float | None = None
+
+    if latency_ms and input_tokens and input_tokens > 0 and input_tps is None:
+        input_tps = input_tokens / (latency_ms / 1000.0)
 
     if generation_ms and output_tokens and output_tokens > 0:
         if output_tps is None:
@@ -53,6 +59,7 @@ def compute_log_metrics(log: dict[str, Any]) -> MetricsFields:
         latency_ms=latency_ms,
         total_ms=total_ms,
         generation_ms=generation_ms,
+        input_tps=input_tps,
         output_tps=output_tps,
         ms_per_output_token=ms_per_output_token,
         visible_output_tokens=visible_output_tokens,

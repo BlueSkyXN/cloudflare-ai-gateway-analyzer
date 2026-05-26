@@ -46,26 +46,28 @@ export function EventsPage() {
         <table className="compact">
           <thead>
             <tr>
-              <th>时间</th>
               <th>渠道</th>
+              <th>时间</th>
               <th>模型</th>
               <th>状态</th>
               <th>输入</th>
               <th>输出</th>
               <th>总计</th>
               <th>总耗时</th>
+              <th>首字节等待</th>
               <th>输出时间</th>
-              <th>TPS</th>
+              <th>输入 TPS</th>
+              <th>输出 TPS</th>
               <th>usage</th>
             </tr>
           </thead>
           <tbody>
             {events.map((event) => (
               <tr key={event.log_id}>
+                <td>{event.provider ?? "-"}</td>
                 <td className="font-mono text-xs whitespace-nowrap">
                   {formatDateTime(event.created_at)}
                 </td>
-                <td>{event.provider ?? "-"}</td>
                 <td className="font-medium">{event.model ?? "-"}</td>
                 <td>
                   <span
@@ -82,7 +84,9 @@ export function EventsPage() {
                 <td>{formatInt(event.output_tokens)}</td>
                 <td>{formatInt(event.total_tokens)}</td>
                 <td>{formatDuration(event.total_ms)}</td>
+                <td>{formatDuration(event.latency_ms)}</td>
                 <td>{formatDuration(event.generation_ms)}</td>
+                <td>{formatFloat(event.input_tps)}</td>
                 <td>{formatFloat(event.output_tps)}</td>
                 <td>
                   <span
@@ -100,7 +104,7 @@ export function EventsPage() {
             ))}
             {events.length === 0 && (
               <tr>
-                <td colSpan={11} className="text-center text-text-dim py-6">
+                <td colSpan={13} className="text-center text-text-dim py-6">
                   暂无事件。
                 </td>
               </tr>

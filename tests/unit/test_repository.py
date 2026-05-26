@@ -153,6 +153,7 @@ def test_query_reads_unified_usage_and_metrics(db: AnalyzerDatabase) -> None:
     assert row["total_tokens"] == 30
     assert row["usage_fetch_status"] == "parsed"
     assert row["generation_ms"] == 2100.0
+    assert pytest.approx(row["input_tps"], rel=1e-3) == 25.0
 
 
 def test_query_search_uses_raw_json_table(db: AnalyzerDatabase) -> None:
@@ -183,6 +184,7 @@ def test_upsert_usage_fills_tokens_and_metrics(db: AnalyzerDatabase) -> None:
     assert row["output_tokens"] == 21
     assert row["total_tokens"] == 31
     assert row["usage_fetch_status"] == "parsed"
+    assert pytest.approx(row["input_tps"], rel=1e-3) == 25.0
     assert pytest.approx(row["output_tps"], rel=1e-3) == 10.0
     assert pytest.approx(row["ms_per_output_token"], rel=1e-3) == 100.0
     assert row["visible_output_tokens"] == 14
@@ -295,6 +297,6 @@ def test_migrations_recorded(db: AnalyzerDatabase) -> None:
         row["version"]
         for row in db.conn.execute("SELECT version FROM migrations ORDER BY version").fetchall()
     ]
-    assert versions == [5]
+    assert versions == [5, 6]
     version = db.conn.execute("PRAGMA user_version").fetchone()[0]
-    assert version == 5
+    assert version == 6

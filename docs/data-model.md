@@ -4,9 +4,11 @@ The analyzer stores all observed accounts and gateways in a single SQLite databa
 
 ## Schema version
 
-`PRAGMA user_version = 5`. The `migrations` table records applied version history with timestamps.
+`PRAGMA user_version = 6`. The `migrations` table records applied version history with timestamps.
 
 Version 5 is an intentional destructive reset for analyzer-owned tables. Existing v0.2-v0.4 SQLite data is not migrated into the new shape; re-sync from Cloudflare after upgrading.
+
+Version 6 adds `input_tps` while preserving v5 data.
 
 ## Relationship overview
 
@@ -69,6 +71,7 @@ This table stores the commonly queried facts and dimensions directly on the log 
 | `latency_ms`             | REAL    | Time to first byte / latency from timings.                              |
 | `total_ms`               | REAL    | Total request time from timings or duration fallback.                   |
 | `generation_ms`          | REAL    | `total_ms - latency_ms`, clipped to 0.                                 |
+| `input_tps`              | REAL    | `input_tokens / (latency_ms / 1000)`.                                  |
 | `output_tps`             | REAL    | `output_tokens / (generation_ms / 1000)`.                              |
 | `ms_per_output_token`    | REAL    | `generation_ms / output_tokens`.                                       |
 | `visible_output_tokens`  | INTEGER | `output_tokens - reasoning_tokens`, floored at 0.                      |

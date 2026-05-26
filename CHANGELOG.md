@@ -8,7 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Changed
 
-- Simplified SQLite schema to version 5 with `log_events` as the single analytics fact table and `log_raw` as the sanitized raw JSON side table.
+- Simplified SQLite schema to version 6 with `log_events` as the single analytics fact table and `log_raw` as the sanitized raw JSON side table.
+- Added `input_tps` as a separate input-side throughput metric while keeping `output_tps` for generation throughput.
 - Replaced the split frontend analytics contract with one `GET /api/v1/analytics` response containing `summary`, `timeseries`, `by_provider`, `by_model`, `events`, and `filter_options`.
 - Updated CLI `query` and `status` outputs to read wide-table usage, timing, TPS, and usage status fields from `log_events`.
 - Frontend analytics pages now share the unified analytics hook and display `provider` as “渠道”.
@@ -21,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Migration
 
 - Schema v5 performs a destructive reset of old analyzer tables. Existing local SQLite analytics data is not migrated; re-sync from Cloudflare.
+- Schema v6 preserves v5 rows and backfills `input_tps` from `input_tokens` and `latency_ms`.
 
 ## [0.3.0a0] — 2026-05-23
 

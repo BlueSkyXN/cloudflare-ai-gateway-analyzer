@@ -3,6 +3,8 @@
 Version 5 intentionally resets local analyzer data into a simpler schema. The
 project is a local sync cache, and the v5 design trades old-cache preservation for
 one analytics fact table that can be repopulated from Cloudflare.
+
+Version 6 adds input-side throughput while preserving v5 data.
 """
 
 from __future__ import annotations
@@ -42,7 +44,30 @@ def _migration_v5(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys=ON")
 
 
-MIGRATIONS: dict[int, MigrationFn] = {5: _migration_v5}
+def _migration_v6(conn: sqlite3.Connection) -> None:
+    """Add input TPS derived from prompt tokens and first-byte latency."""
+
+    if "input_tps" not in _table_columns(conn, "log_events"):
+        conn.execute("ALTER TABLE log_events ADD COLUMN input_tps REAL")
+    conn.execute(
+        """
+        UPDATE log_events
+        SET input_tps = input_tokens / (latency_ms / 1000.0)
+        WHERE input_tps IS NULL
+          AND input_tokens IS NOT NULL
+          AND input_tokens > 0
+          AND latency_ms IS NOT NULL
+          AND latency_ms > 0
+        """
+    )
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return {str(row[1]) for row in rows}
+
+
+MIGRATIONS: dict[int, MigrationFn] = {5: _migration_v5, 6: _migration_v6}
 
 
 def current_version(conn: sqlite3.Connection) -> int:

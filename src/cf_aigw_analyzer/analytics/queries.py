@@ -18,6 +18,7 @@ class AnalyticsFilters:
     provider: str | None = None
     model: str | None = None
     success: bool | None = None
+    timeseries_bucket_hours: int = 1
 
 
 def build_where(filters: AnalyticsFilters, *, prefix: str = "e") -> tuple[str, list[Any]]:

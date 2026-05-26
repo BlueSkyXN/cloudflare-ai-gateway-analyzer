@@ -47,11 +47,11 @@ class EventRepository:
                         account_id, gateway_id, log_id, created_at, provider, model,
                         model_type, success, cached, status_code, cost_usd,
                         input_tokens, output_tokens, total_tokens, duration_ms,
-                        latency_ms, total_ms, generation_ms, output_tps,
+                        latency_ms, total_ms, generation_ms, input_tps, output_tps,
                         ms_per_output_token, visible_output_tokens, visible_output_tps,
                         synced_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(account_id, gateway_id, log_id) DO UPDATE SET
                         created_at=excluded.created_at,
                         provider=excluded.provider,
@@ -80,6 +80,11 @@ class EventRepository:
                         latency_ms=excluded.latency_ms,
                         total_ms=excluded.total_ms,
                         generation_ms=excluded.generation_ms,
+                        input_tps=CASE
+                            WHEN log_events.usage_fetch_status='parsed'
+                            THEN log_events.input_tps
+                            ELSE excluded.input_tps
+                        END,
                         output_tps=CASE
                             WHEN log_events.usage_fetch_status='parsed'
                             THEN log_events.output_tps
@@ -122,6 +127,7 @@ class EventRepository:
                         metrics.latency_ms,
                         metrics.total_ms,
                         metrics.generation_ms,
+                        metrics.input_tps,
                         metrics.output_tps,
                         metrics.ms_per_output_token,
                         metrics.visible_output_tokens,
@@ -172,6 +178,7 @@ class EventRepository:
             cached_tokens = row["cached_tokens"]
             reasoning_tokens = row["reasoning_tokens"]
             cache_write_tokens = row["cache_write_tokens"]
+            input_tps = row["input_tps"]
             output_tps = row["output_tps"]
             ms_per_output_token = row["ms_per_output_token"]
             visible_output_tokens = row["visible_output_tokens"]
@@ -189,10 +196,13 @@ class EventRepository:
                 reasoning_tokens = _prefer(usage.reasoning_tokens, reasoning_tokens)
                 cache_write_tokens = _prefer(usage.cache_write_tokens, cache_write_tokens)
                 metric_updates = _usage_metric_updates(
+                    input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     reasoning_tokens=reasoning_tokens,
+                    latency_ms=row["latency_ms"],
                     generation_ms=row["generation_ms"],
                 )
+                input_tps = _prefer(metric_updates["input_tps"], input_tps)
                 output_tps = _prefer(metric_updates["output_tps"], output_tps)
                 ms_per_output_token = _prefer(
                     metric_updates["ms_per_output_token"], ms_per_output_token
@@ -214,6 +224,7 @@ class EventRepository:
                     cached_tokens=?,
                     reasoning_tokens=?,
                     cache_write_tokens=?,
+                    input_tps=?,
                     output_tps=?,
                     ms_per_output_token=?,
                     visible_output_tokens=?,
@@ -233,6 +244,7 @@ class EventRepository:
                     cached_tokens,
                     reasoning_tokens,
                     cache_write_tokens,
+                    input_tps,
                     output_tps,
                     ms_per_output_token,
                     visible_output_tokens,
@@ -388,15 +400,25 @@ class EventRepository:
 
 
 def _usage_metric_updates(
-    *, output_tokens: int | None, reasoning_tokens: int | None, generation_ms: Any
+    *,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    reasoning_tokens: int | None,
+    latency_ms: Any,
+    generation_ms: Any,
 ) -> dict[str, float | int | None]:
+    latency = _as_float(latency_ms)
     generation = _as_float(generation_ms)
+    input_value = float(input_tokens) if input_tokens is not None else None
     output_value = float(output_tokens) if output_tokens is not None else None
+    input_tps: float | None = None
     output_tps: float | None = None
     ms_per_output_token: float | None = None
     visible_output_tokens: int | None = None
     visible_output_tps: float | None = None
 
+    if input_value and latency and latency > 0:
+        input_tps = input_value / (latency / 1000.0)
     if output_value and generation and generation > 0:
         output_tps = output_value / (generation / 1000.0)
         ms_per_output_token = generation / output_value
@@ -405,6 +427,7 @@ def _usage_metric_updates(
         if generation and generation > 0:
             visible_output_tps = visible_output_tokens / (generation / 1000.0)
     return {
+        "input_tps": input_tps,
         "output_tps": output_tps,
         "ms_per_output_token": ms_per_output_token,
         "visible_output_tokens": visible_output_tokens,
