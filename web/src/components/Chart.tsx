@@ -1,5 +1,10 @@
 import { BarChart, LineChart, ScatterChart } from "echarts/charts";
-import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
+import {
+  AxisPointerComponent,
+  GridComponent,
+  LegendComponent,
+  TooltipComponent,
+} from "echarts/components";
 import { connect, init, use, type EChartsCoreOption, type EChartsType } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import { useEffect, useMemo, useRef } from "react";
@@ -10,6 +15,7 @@ use([
   BarChart,
   LineChart,
   ScatterChart,
+  AxisPointerComponent,
   GridComponent,
   LegendComponent,
   TooltipComponent,
@@ -72,6 +78,10 @@ function buildOption(option: Record<string, unknown>, theme: ThemeMode): Record<
       backgroundColor: palette.panel,
       borderColor: palette.line,
       textStyle: { color: palette.text },
+      axisPointer: {
+        type: "line",
+        lineStyle: { color: palette.dim, opacity: 0.8 },
+      },
     },
     ...option,
   };

@@ -6,6 +6,12 @@ import { useAnalytics } from "@/hooks/queries";
 import { useFilters } from "@/store/filters";
 import { formatDuration, formatFloat } from "@/utils/format";
 
+const LATENCY_CHART_GROUP = "latency-metrics";
+
+function rounded(value: number | null | undefined, digits = 2): number | null {
+  return value == null ? null : Number(value.toFixed(digits));
+}
+
 export function LatencyPage() {
   const { data } = useAnalytics();
   const summary = data?.summary;
@@ -23,48 +29,59 @@ export function LatencyPage() {
           name: "总耗时",
           type: "line",
           smooth: true,
-          data: points.map((p) => p.avg_total_ms?.toFixed(0) ?? null),
+          data: points.map((p) => rounded(p.avg_total_ms, 0)),
         },
         {
           name: "首段延迟",
           type: "line",
           smooth: true,
-          data: points.map((p) => p.avg_latency_ms?.toFixed(0) ?? null),
+          data: points.map((p) => rounded(p.avg_latency_ms, 0)),
         },
         {
           name: "输出时间",
           type: "line",
           smooth: true,
-          data: points.map((p) => p.avg_generation_ms?.toFixed(0) ?? null),
+          data: points.map((p) => rounded(p.avg_generation_ms, 0)),
         },
       ],
     }),
     [points]
   );
 
-  const tpsOption = useMemo(
+  const inputTpsOption = useMemo(
     () => ({
-      legend: { data: ["输入 TPS", "输出 TPS", "可见输出 TPS"], top: 0 },
+      legend: { data: ["输入 TPS"], top: 0 },
       xAxis: { type: "category", data: points.map((p) => p.hour) },
-      yAxis: { type: "value" },
+      yAxis: { type: "value", name: "tokens/s" },
       series: [
         {
           name: "输入 TPS",
           type: "line",
           smooth: true,
-          data: points.map((p) => p.avg_input_tps?.toFixed(2) ?? null),
+          data: points.map((p) => rounded(p.avg_input_tps)),
         },
+      ],
+    }),
+    [points]
+  );
+
+  const outputTpsOption = useMemo(
+    () => ({
+      legend: { data: ["输出 TPS", "可见输出 TPS"], top: 0 },
+      xAxis: { type: "category", data: points.map((p) => p.hour) },
+      yAxis: { type: "value", name: "tokens/s" },
+      series: [
         {
           name: "输出 TPS",
           type: "line",
           smooth: true,
-          data: points.map((p) => p.avg_output_tps?.toFixed(2) ?? null),
+          data: points.map((p) => rounded(p.avg_output_tps)),
         },
         {
           name: "可见输出 TPS",
           type: "line",
           smooth: true,
-          data: points.map((p) => p.avg_visible_output_tps?.toFixed(2) ?? null),
+          data: points.map((p) => rounded(p.avg_visible_output_tps)),
         },
       ],
     }),
@@ -84,12 +101,17 @@ export function LatencyPage() {
 
       <section className="panel-lg">
         <h2 className="text-sm font-medium text-text-dim mb-2">按{bucketLabel}耗时</h2>
-        <Chart option={latencyOption} />
+        <Chart option={latencyOption} group={LATENCY_CHART_GROUP} />
       </section>
 
       <section className="panel-lg">
-        <h2 className="text-sm font-medium text-text-dim mb-2">按{bucketLabel}TPS</h2>
-        <Chart option={tpsOption} />
+        <h2 className="text-sm font-medium text-text-dim mb-2">按{bucketLabel}输入 TPS</h2>
+        <Chart option={inputTpsOption} group={LATENCY_CHART_GROUP} />
+      </section>
+
+      <section className="panel-lg">
+        <h2 className="text-sm font-medium text-text-dim mb-2">按{bucketLabel}输出 TPS</h2>
+        <Chart option={outputTpsOption} group={LATENCY_CHART_GROUP} />
       </section>
     </div>
   );
