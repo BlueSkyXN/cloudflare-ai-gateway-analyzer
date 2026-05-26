@@ -165,6 +165,25 @@ def test_analytics_supports_custom_timeseries_buckets(populated_db: Path) -> Non
     assert payload["timeseries"][0]["rpm"] == pytest.approx(3 / 240, rel=1e-3)
 
 
+def test_analytics_time_filters_include_iso_millisecond_boundaries(populated_db: Path) -> None:
+    with open_readonly_connection(populated_db) as conn:
+        payload = build_analytics(
+            conn,
+            AnalyticsFilters(
+                account_id="acct",
+                gateway_id="gw",
+                start_date="2026-05-22T00:30:00.000Z",
+                end_date="2026-05-22T01:10:00.000Z",
+            ),
+            limit=10,
+        )
+
+    assert payload["summary"]["requests"] == 2
+    assert payload["summary"]["first_log_at"] == "2026-05-22T00:30:00Z"
+    assert payload["summary"]["last_log_at"] == "2026-05-22T01:10:00Z"
+    assert [event["log_id"] for event in payload["events"]] == ["big-1", "small-2"]
+
+
 def test_summary_empty_when_no_data(tmp_path: Path) -> None:
     path = tmp_path / "empty.sqlite"
     with AnalyzerDatabase(path):

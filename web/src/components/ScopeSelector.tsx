@@ -56,8 +56,24 @@ export function ScopeSelector() {
   const setSuccessFilter = useFilters((s) => s.setSuccessFilter);
 
   useEffect(() => {
-    if (!scope && scopes && scopes.length > 0) {
+    if (!scopes || scopes.length === 0) {
+      return;
+    }
+    if (!scope) {
       setScope(scopes[0]);
+      return;
+    }
+    const freshScope = scopes.find(
+      (item) => item.account_id === scope.account_id && item.gateway_id === scope.gateway_id
+    );
+    if (
+      freshScope &&
+      (freshScope.name !== scope.name ||
+        freshScope.logs !== scope.logs ||
+        freshScope.first_log_at !== scope.first_log_at ||
+        freshScope.last_log_at !== scope.last_log_at)
+    ) {
+      setScope(freshScope);
     }
   }, [scope, scopes, setScope]);
 
