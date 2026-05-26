@@ -13,7 +13,6 @@ The bare form is the recommended one in user docs.
 
 from __future__ import annotations
 
-import random
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -58,14 +57,7 @@ class StorageConfig(_Section):
         return self.data_dir / self.db_filename
 
 
-CONTROL_PORT_MIN = 49152
-CONTROL_PORT_MAX = 65535
-
-
-def random_control_port() -> int:
-    """Return a high-range port for the default control-plane bind."""
-
-    return random.randint(CONTROL_PORT_MIN, CONTROL_PORT_MAX)
+CONTROL_PORT_DEFAULT = 56000
 
 
 class SyncConfig(_Section):
@@ -79,7 +71,7 @@ class SyncConfig(_Section):
 
 class ControlConfig(_Section):
     host: str = "127.0.0.1"
-    port: int | None = Field(default=None, ge=1, le=65535)
+    port: int = Field(default=CONTROL_PORT_DEFAULT, ge=1, le=65535)
     auth_token: SecretStr | None = None
     expose_docs: bool = True
     cors_origins: list[str] = Field(default_factory=list)

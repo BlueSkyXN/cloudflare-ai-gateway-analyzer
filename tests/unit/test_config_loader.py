@@ -14,6 +14,9 @@ from cf_aigw_analyzer.config import (
     render_template,
     resolve_yaml_path,
 )
+from cf_aigw_analyzer.config.settings import (
+    CONTROL_PORT_DEFAULT,
+)
 
 
 def test_defaults_when_no_yaml(isolated_env, tmp_path, monkeypatch):
@@ -22,7 +25,7 @@ def test_defaults_when_no_yaml(isolated_env, tmp_path, monkeypatch):
     assert isinstance(settings, Settings)
     assert settings.cloudflare.api_token is None
     assert settings.control.host == "127.0.0.1"
-    assert settings.control.port is None
+    assert settings.control.port == CONTROL_PORT_DEFAULT
     assert settings.sync.per_page == 50
     assert settings.has_credentials() is False
 
@@ -90,7 +93,7 @@ def test_render_template_round_trip_is_valid_yaml(isolated_env):
     data = yaml.safe_load(rendered)
     assert "cloudflare" in data
     assert "control" in data
-    assert data["control"]["port"] is None
+    assert data["control"]["port"] == CONTROL_PORT_DEFAULT
     # Public template must not leak Pydantic's secret mask.
     assert "**********" not in rendered
 
@@ -140,3 +143,7 @@ def test_unknown_field_inside_section_is_rejected(isolated_env, tmp_yaml: Path):
     )
     with pytest.raises(ValidationError):
         load_settings(tmp_yaml)
+
+
+def test_control_port_default_is_fixed_high_port() -> None:
+    assert CONTROL_PORT_DEFAULT == 56000

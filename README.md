@@ -5,7 +5,7 @@
 - **Runtime**：Python 3.10+，httpx + tenacity + FastAPI + Pydantic v2 + Typer
 - **存储**：单 SQLite 文件，`log_events` 是统计事实表，`log_raw` 只保存 sanitized JSON
 - **前端**：React 18 + Vite + TypeScript + ECharts + Tailwind（默认暗色，仪表盘式信息密度）
-- **部署**：Dockerfile + docker-compose（默认 loopback 绑定 `127.0.0.1:8765`）
+- **部署**：Dockerfile + docker-compose（默认 loopback 绑定 `127.0.0.1:56000`）
 - **License**：未选择，源码可读但暂未授予复用许可
 
 ## 关键设计
@@ -53,7 +53,7 @@ python cli.py sync -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --with-usage --
 python cli.py sync -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --incremental --with-usage --missing-only
 
 # 启动控制面 + 看板
-python cli.py serve         # http://127.0.0.1:8765
+python cli.py serve         # 启动后打印实际监听端口（默认 56000）
 
 # 本地查询
 python cli.py query -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --format table --limit 50
@@ -69,14 +69,14 @@ python cli.py status
 ```bash
 cd web
 npm install     # 首次安装；生成 lockfile 后可改用 npm ci
-npm run dev     # http://127.0.0.1:5173，自动代理 /api → 8765
+npm run dev     # http://127.0.0.1:5173，默认代理 /api 到 56000（可通过 VITE_CONTROL_PORT 覆盖）
 npm run build   # 产出 web/dist/，由 FastAPI 静态托管
 ```
 
 ### Docker
 
 ```bash
-docker compose up -d           # loopback bind 127.0.0.1:8765
+docker compose up -d           # loopback bind 127.0.0.1:56000（可调）
 docker compose exec cf-aigw \
   python cli.py sync -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --with-usage
 ```

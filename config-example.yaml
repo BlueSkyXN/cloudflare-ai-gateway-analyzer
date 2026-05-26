@@ -38,8 +38,8 @@ sync:
 # (including read-only GETs). Empty token + loopback host = open.
 control:
   host: 127.0.0.1
-  # 留空时自动使用高位随机端口（49152-65535）。
-  port: null
+  # 默认监听端口。可用 --port / control.port / CF_AIGW_CONTROL__PORT 覆盖。
+  port: 56000
   auth_token: null
   expose_docs: true
   cors_origins: []

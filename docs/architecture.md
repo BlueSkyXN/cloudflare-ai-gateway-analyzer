@@ -59,7 +59,7 @@ The Python package mirrors the runtime layers exactly:
 ## Process model
 
 - `cli.py {init,sync,sync-usage,query,status,vacuum,...}` — one-shot CLI.
-- `cli.py serve` (or `serve.py`) — long-running FastAPI on `127.0.0.1:8765`. Uvicorn worker count is 1; the workload is IO-bound and serves a small number of analyst connections, so a single event loop is sufficient.
+- `cli.py serve` (or `serve.py`) — long-running FastAPI on `127.0.0.1` with a fixed default port `56000`, unless `control.port` / `--port` is explicitly set. Uvicorn worker count is 1; the workload is IO-bound and serves a small number of analyst connections, so a single event loop is sufficient.
 - React panel is built once with `npm run build`. The output `web/dist/` is mounted by `cf_aigw_analyzer.control.static`. Vite dev server can run separately during frontend development and proxies `/api` to the FastAPI process.
 
 ## Cloudflare API surface
