@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import typer
 
-from cf_aigw_analyzer.config.settings import random_control_port
 from cf_aigw_analyzer.cli._common import ConfigOption, console, load
 
 
@@ -20,13 +19,11 @@ def serve(
         False, "--reload", help="Enable uvicorn auto-reload for development."
     ),
 ) -> None:
-    """Start the FastAPI control plane on 127.0.0.1:8765 (configurable)."""
+    """Start the FastAPI control plane on 127.0.0.1 with a fixed default port."""
 
     settings = load(config)
     bind_host = host or settings.control.host
     bind_port = port if port is not None else settings.control.port
-    if bind_port is None:
-        bind_port = random_control_port()
 
     try:
         import uvicorn

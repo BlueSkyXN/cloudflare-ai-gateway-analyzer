@@ -46,7 +46,7 @@ Project-level guidance for AI assistants (Claude, Codex, ...) working in this re
 | `PYTHONPATH=src python3 -m pytest -q`                          | 单元 + 集成测试，离线运行                 |
 | `python3 -m ruff check src tests scripts cli.py main.py serve.py` | Lint，零容忍                              |
 | `python3 -m ruff format --check src tests scripts cli.py main.py serve.py` | 格式校对                      |
-| `python3 cli.py serve`                                        | 启动 FastAPI + 看板（端口 8765）          |
+| `python3 cli.py serve`                                        | 启动 FastAPI + 看板（默认 `56000`，或由 `--port` / `control.port` 指定）          |
 | `python3 cli.py config show`                                  | 看脱敏后的有效配置                        |
 | `python3 scripts/seed_sqlite.py --count 200`                  | 灌入合成数据（不真打 Cloudflare）         |
 | `python3 scripts/check_api.py`                                | ASGI 内存调用 GET 路由，确保返回 200      |

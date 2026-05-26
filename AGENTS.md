@@ -54,7 +54,7 @@
 | `python3 scripts/smoke_local.py`                                                                            | Aggregate: ruff + pytest + openapi + api smoke                       | Offline                                                      |
 | `python3 cli.py --help`                                                                                     | List CLI subcommands                                                 | Offline                                                      |
 | `python3 cli.py config show`                                                                                | Print redacted effective configuration                               | Offline                                                      |
-| `python3 cli.py serve`                                                                                      | Start FastAPI on `127.0.0.1:8765`                                    | Long-running                                                 |
+| `python3 cli.py serve`                                                                                      | Start FastAPI on `127.0.0.1` with fixed default port `56000` unless `--port`/`control.port` is set | Long-running                                                 |
 | `cd web && npm install`                                                                                     | Install panel dependencies                                           | Needs network for first install; use `npm ci` only after a lockfile exists |
 | `cd web && npm run lint`                                                                                    | Type-check app + Vite config without emitting JS                     | Offline after deps installed                                 |
 | `cd web && npm run build`                                                                                   | Build the panel into gitignored `web/dist`                           | Offline after deps installed                                 |
@@ -76,6 +76,24 @@
 - Docker healthcheck must remain compatible with `CF_AIGW_CONTROL__AUTH_TOKEN`; do not add unauthenticated `/api/v1/health` exemptions.
 - Never persist request/response bodies. The sanitizer runs before any `raw_json` write.
 - `legacy/v0.2/` is read-only reference. Do not edit, even for "obvious" lint fixes.
+
+## 实操速查（拉网关日志 + 启动看板）
+
+- 默认优先读 `./.env.local`（或通过 `CF_AIGW_CONFIG` 指定配置），并通过 `set -a; . ./.env.local; set +a` 注入当前 shell。
+- 认证变量至少要满足其一：`CF_API_TOKEN`，或 `CF_EMAIL` + `CF_API_KEY`。
+- 典型端到端流程（同一 shell）：
+  - `python3 cli.py accounts`
+  - `python3 cli.py gateways -a <ACCOUNT_ID> --save`
+  - `python3 cli.py sync -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --with-usage --missing-only`
+  - `python3 cli.py status --account-id <ACCOUNT_ID> --gateway-name <GATEWAY_NAME>`
+  - `python3 cli.py query -a <ACCOUNT_ID> --gateway-name <GATEWAY_NAME> --format table --limit 20`
+- 不需要回填 usage 时可去掉 `--with-usage`；需要覆盖历史时可去掉 `--missing-only`；增量同步可加 `--incremental`（会读取 `sync_state`）。
+- 启动控制面板与静态页面：
+  - `python3 cli.py serve`
+  - 启动日志会打印真实监听地址（默认 `56000`，可通过 `--port`/`CF_AIGW_CONTROL__PORT` 覆盖），先用该地址访问根路径 `/`。
+  - 健康检查例子（启用 auth 时）：
+    - `curl -s -H "Authorization: Bearer $CF_AIGW_CONTROL__AUTH_TOKEN" http://127.0.0.1:<port>/api/v1/health`
+- 任何 `usage_failed > 0` 不一定是异常，先用 `/api/v1/analytics` 或 `sync-usage` 的日志确认失败类型后再判断重试策略。
 
 ## Validation policy
 

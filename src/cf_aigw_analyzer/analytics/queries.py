@@ -31,10 +31,10 @@ def build_where(filters: AnalyticsFilters, *, prefix: str = "e") -> tuple[str, l
         clauses.append(f"{prefix}.gateway_id = ?")
         params.append(filters.gateway_id)
     if filters.start_date:
-        clauses.append(f"{prefix}.created_at >= ?")
+        clauses.append(f"julianday({prefix}.created_at) >= julianday(?)")
         params.append(parse_datetime_input(filters.start_date))
     if filters.end_date:
-        clauses.append(f"{prefix}.created_at <= ?")
+        clauses.append(f"julianday({prefix}.created_at) <= julianday(?)")
         params.append(parse_datetime_input(filters.end_date))
     if filters.provider:
         clauses.append(f"{prefix}.provider = ?")

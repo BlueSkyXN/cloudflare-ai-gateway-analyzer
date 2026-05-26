@@ -31,7 +31,7 @@ python cli.py serve
 cd web && npm run dev
 ```
 
-Visit `http://127.0.0.1:5173` for the development panel (proxied to `127.0.0.1:8765`) or `http://127.0.0.1:8765` for the embedded panel.
+Visit `http://127.0.0.1:5173` for the development panel (proxy default target is `127.0.0.1:56000`, configurable by `VITE_CONTROL_PORT`) or the embedded panel URL printed by `python cli.py serve`.
 
 ## Validation
 

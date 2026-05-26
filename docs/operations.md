@@ -120,7 +120,7 @@ The same data is available via `GET /api/v1/status` and the dashboard's Sync pag
 ## Running the dashboard
 
 ```bash
-python cli.py serve                # http://127.0.0.1:8765
+python cli.py serve                # 启动后打印实际监听端口（默认 56000）
 ```
 
 The FastAPI process:
@@ -133,8 +133,7 @@ For panel development:
 
 ```bash
 cd web
-npm install
-npm run dev      # 127.0.0.1:5173 — proxies /api to 8765
+npm run dev      # 127.0.0.1:5173 — proxies /api to 56000 (可通过 VITE_CONTROL_PORT 覆盖)
 ```
 
 ## Triggering sync from the panel
