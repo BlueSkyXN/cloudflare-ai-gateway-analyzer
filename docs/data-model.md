@@ -4,11 +4,13 @@ The analyzer stores all observed accounts and gateways in a single SQLite databa
 
 ## Schema version
 
-`PRAGMA user_version = 6`. The `migrations` table records applied version history with timestamps.
+`PRAGMA user_version = 7`. The `migrations` table records applied version history with timestamps.
 
 Version 5 is an intentional destructive reset for analyzer-owned tables. Existing v0.2-v0.4 SQLite data is not migrated into the new shape; re-sync from Cloudflare after upgrading.
 
 Version 6 adds `input_tps` while preserving v5 data.
+
+Version 7 adds expression indexes for the existing `julianday(created_at)` time-window filters.
 
 ## Relationship overview
 

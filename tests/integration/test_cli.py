@@ -74,6 +74,12 @@ def test_status_command_on_fresh_db(project_root: Path) -> None:
     assert '"total_logs": 0' in result.stdout
 
 
+def test_serve_reload_is_rejected_before_uvicorn(project_root: Path) -> None:
+    result = runner.invoke(app, ["serve", "--reload"])
+    assert result.exit_code == 2
+    assert "--reload 当前不支持" in result.stdout
+
+
 @pytest.mark.parametrize(
     ("args", "expected"),
     [

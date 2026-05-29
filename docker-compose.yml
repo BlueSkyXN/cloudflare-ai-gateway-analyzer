@@ -19,8 +19,7 @@ services:
     volumes:
       # Persist SQLite + logs across container restarts.
       - ./local:/app/local
-      # Optional read-only config override.
-      - ./config.yaml:/app/config.yaml:ro
+      # To use config.yaml, add a compose override that mounts it read-only.
     healthcheck:
       test: ["CMD", "python", "-c", "import os, sys, urllib.request; req=urllib.request.Request('http://127.0.0.1:56000/api/v1/health'); token=os.getenv('CF_AIGW_CONTROL__AUTH_TOKEN'); req.add_header('Authorization', f'Bearer {token}') if token else None; r=urllib.request.urlopen(req, timeout=3); sys.exit(0 if r.status == 200 else 1)"]
       interval: 30s

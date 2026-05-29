@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 from cf_aigw_analyzer.data import AnalyzerDatabase, LogQueryFilters, UsageFields
+from cf_aigw_analyzer.data.migrations import apply_migrations
 from cf_aigw_analyzer.data.repository import SyncLockBusy
 from cf_aigw_analyzer.models.enums import FetchStatus
 
@@ -320,6 +322,40 @@ def test_migrations_recorded(db: AnalyzerDatabase) -> None:
         row["version"]
         for row in db.conn.execute("SELECT version FROM migrations ORDER BY version").fetchall()
     ]
-    assert versions == [5, 6]
+    assert versions == [5, 6, 7]
     version = db.conn.execute("PRAGMA user_version").fetchone()[0]
-    assert version == 6
+    assert version == 7
+    index_names = {row["name"] for row in db.conn.execute("PRAGMA index_list(log_events)")}
+    assert "idx_log_events_scope_julianday_time" in index_names
+    assert "idx_log_events_global_julianday_time" in index_names
+
+
+def test_v7_migration_adds_julianday_indexes_to_existing_v6(tmp_path: Path) -> None:
+    conn = sqlite3.connect(tmp_path / "v6.sqlite")
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            );
+            CREATE TABLE log_events (
+                account_id TEXT NOT NULL,
+                gateway_id TEXT NOT NULL,
+                log_id TEXT NOT NULL,
+                created_at TEXT,
+                PRIMARY KEY (account_id, gateway_id, log_id)
+            );
+            INSERT INTO migrations(version, applied_at)
+            VALUES (5, '2026-05-01T00:00:00Z'), (6, '2026-05-01T00:00:00Z');
+            PRAGMA user_version=6;
+            """
+        )
+
+        assert apply_migrations(conn) == 7
+        index_names = {row["name"] for row in conn.execute("PRAGMA index_list(log_events)")}
+        assert "idx_log_events_scope_julianday_time" in index_names
+        assert "idx_log_events_global_julianday_time" in index_names
+    finally:
+        conn.close()

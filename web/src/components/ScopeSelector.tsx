@@ -61,13 +61,20 @@ export function ScopeSelector() {
     }
     if (!scope) {
       setScope(scopes[0]);
+      setProvider(null);
+      setModel(null);
       return;
     }
     const freshScope = scopes.find(
       (item) => item.account_id === scope.account_id && item.gateway_id === scope.gateway_id
     );
+    if (!freshScope) {
+      setScope(scopes[0]);
+      setProvider(null);
+      setModel(null);
+      return;
+    }
     if (
-      freshScope &&
       (freshScope.name !== scope.name ||
         freshScope.logs !== scope.logs ||
         freshScope.first_log_at !== scope.first_log_at ||
@@ -75,7 +82,7 @@ export function ScopeSelector() {
     ) {
       setScope(freshScope);
     }
-  }, [scope, scopes, setScope]);
+  }, [scope, scopes, setModel, setProvider, setScope]);
 
   const providerOptions = filterOptions?.providers ?? [];
   const modelOptions = useMemo(() => {
@@ -124,7 +131,11 @@ export function ScopeSelector() {
             const target = scopes?.find(
               (s) => `${s.account_id}/${s.gateway_id}` === e.target.value
             );
-            if (target) setScope(target);
+            if (target) {
+              setScope(target);
+              setProvider(null);
+              setModel(null);
+            }
           }}
         >
           {!scopes || scopes.length === 0 ? (

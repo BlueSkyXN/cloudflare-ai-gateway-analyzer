@@ -1,6 +1,6 @@
 """SQLite schema definition for the analyzer.
 
-Schema version 6 layout (single fact table + raw JSON side table):
+Schema version 7 layout (single fact table + raw JSON side table):
 
 * ``gateways``       — gateway metadata (1 row per gateway)
 * ``log_events``     — one analytics-ready row per Cloudflare AI Gateway log
@@ -16,7 +16,7 @@ Schema version 6 layout (single fact table + raw JSON side table):
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 PRAGMAS = (
     "PRAGMA foreign_keys=ON",
@@ -136,6 +136,10 @@ CREATE INDEX IF NOT EXISTS idx_log_events_provider_model
     ON log_events(account_id, gateway_id, provider, model);
 CREATE INDEX IF NOT EXISTS idx_log_events_global_time
     ON log_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_log_events_scope_julianday_time
+    ON log_events(account_id, gateway_id, julianday(created_at));
+CREATE INDEX IF NOT EXISTS idx_log_events_global_julianday_time
+    ON log_events(julianday(created_at));
 CREATE INDEX IF NOT EXISTS idx_log_events_usage_status
     ON log_events(account_id, gateway_id, usage_fetch_status);
 CREATE INDEX IF NOT EXISTS idx_sync_runs_scope_time

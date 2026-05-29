@@ -147,6 +147,7 @@ async def test_status(client: httpx.AsyncClient) -> None:
     assert body["total_logs"] == 2
     assert body["usage_parsed"] == 1
     assert body["usage_no_usage"] == 1
+    assert body["database_bytes"] > 0
 
 
 @pytest.mark.asyncio

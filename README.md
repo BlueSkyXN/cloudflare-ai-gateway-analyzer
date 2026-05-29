@@ -107,9 +107,9 @@ cd web && npm run lint && npm run build
 
 当前主线：
 
-- SQLite schema v6：`log_events` 宽表 + `log_raw` 辅助表；旧 SQLite 数据不迁移，升级时 destructive reset 后重新 sync。
+- SQLite schema v7：`log_events` 宽表 + `log_raw` 辅助表；旧 SQLite 数据不迁移，升级时 destructive reset 后重新 sync。
 - OpenAPI 12 个路径，analytics 主入口为 `GET /api/v1/analytics`。
-- 89 个单元 + 集成测试覆盖 data / core / analytics / cli / control。
+- 102 个单元 + 集成测试覆盖 data / core / analytics / cli / control。
 - 前端保留总览、模型、延迟、事件、同步、设置多页；analytics 页面共用统一接口。
 
 `legacy/v0.2/` 保留了上一版完整源码作为参考，不再维护。

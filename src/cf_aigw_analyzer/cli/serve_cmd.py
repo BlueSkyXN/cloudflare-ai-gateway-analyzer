@@ -21,6 +21,13 @@ def serve(
 ) -> None:
     """Start the FastAPI control plane on 127.0.0.1 with a fixed default port."""
 
+    if reload:
+        console.print(
+            "[red]--reload 当前不支持。[/red]"
+            " 该命令直接传入已构建的 FastAPI app；请使用外部 uvicorn 命令做开发热重载。"
+        )
+        raise typer.Exit(code=2)
+
     settings = load(config)
     bind_host = host or settings.control.host
     bind_port = port if port is not None else settings.control.port

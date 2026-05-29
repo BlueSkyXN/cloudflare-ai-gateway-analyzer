@@ -46,18 +46,28 @@ class CloudflareConfig(_Section):
     retries: int = Field(default=3, ge=1, le=10)
 
 
+STORAGE_DATA_DIR_DEFAULT = Path("./local/data")
+CONTROL_HOST_DEFAULT = "127.0.0.1"
+CONTROL_PORT_DEFAULT = 56000
+LOGGING_LEVEL_DEFAULT = "INFO"
+
+
 class StorageConfig(_Section):
-    data_dir: Path = Field(default=Path("./local/data"))
+    data_dir: Path = Field(default=STORAGE_DATA_DIR_DEFAULT)
     db_filename: str = "cloudflare_ai_gateway.sqlite"
     vacuum_on_close: bool = False
     wal_checkpoint_interval: int = Field(default=1000, ge=0)
 
+    @field_validator("data_dir", mode="before")
+    @classmethod
+    def _default_empty_data_dir(cls, value: Any) -> Any:
+        if value is None or value == "":
+            return STORAGE_DATA_DIR_DEFAULT
+        return value
+
     @property
     def db_path(self) -> Path:
         return self.data_dir / self.db_filename
-
-
-CONTROL_PORT_DEFAULT = 56000
 
 
 class SyncConfig(_Section):
@@ -70,7 +80,7 @@ class SyncConfig(_Section):
 
 
 class ControlConfig(_Section):
-    host: str = "127.0.0.1"
+    host: str = CONTROL_HOST_DEFAULT
     port: int = Field(default=CONTROL_PORT_DEFAULT, ge=1, le=65535)
     auth_token: SecretStr | None = None
     expose_docs: bool = True
@@ -79,6 +89,13 @@ class ControlConfig(_Section):
     default_account_id: str | None = None
     default_gateway_id: str | None = None
 
+    @field_validator("host", mode="before")
+    @classmethod
+    def _default_empty_host(cls, value: Any) -> Any:
+        if value is None or value == "":
+            return CONTROL_HOST_DEFAULT
+        return value
+
     @field_validator("port", mode="before")
     @classmethod
     def _default_empty_port(cls, value: Any) -> Any:
@@ -86,15 +103,26 @@ class ControlConfig(_Section):
             return CONTROL_PORT_DEFAULT
         return value
 
+    @field_validator("auth_token", mode="before")
+    @classmethod
+    def _drop_empty_auth_token(cls, value: Any) -> Any:
+        if value is None or value == "":
+            return None
+        if isinstance(value, SecretStr) and value.get_secret_value() == "":
+            return None
+        return value
+
 
 class LoggingConfig(_Section):
-    level: str = "INFO"
+    level: str = LOGGING_LEVEL_DEFAULT
     format: str = Field(default="rich", pattern="^(rich|plain|json)$")
 
-    @field_validator("level")
+    @field_validator("level", mode="before")
     @classmethod
-    def _normalize_level(cls, value: str) -> str:
-        return value.strip().upper()
+    def _normalize_level(cls, value: Any) -> str:
+        if value is None or value == "":
+            return LOGGING_LEVEL_DEFAULT
+        return str(value).strip().upper()
 
 
 class _YamlSettingsSource(PydanticBaseSettingsSource):

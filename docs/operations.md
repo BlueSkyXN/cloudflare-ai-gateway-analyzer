@@ -164,6 +164,18 @@ The compose file binds to loopback by default. The health probe hits
 probe sends the matching `Authorization: Bearer <token>` header; `/api/v1/health`
 is not exempt from auth.
 
+The default compose file reads credentials and simple overrides from `.env` and
+persists SQLite under `./local`. If you prefer `config.yaml`, mount it with a
+local compose override, for example:
+
+```yaml
+services:
+  cf-aigw:
+    volumes:
+      - ./local:/app/local
+      - ./config.yaml:/app/config.yaml:ro
+```
+
 To rebuild after pulling new code:
 
 ```bash

@@ -5,6 +5,9 @@ project is a local sync cache, and the v5 design trades old-cache preservation f
 one analytics fact table that can be repopulated from Cloudflare.
 
 Version 6 adds input-side throughput while preserving v5 data.
+
+Version 7 adds expression indexes for the existing ``julianday(created_at)``
+time filters.
 """
 
 from __future__ import annotations
@@ -62,12 +65,29 @@ def _migration_v6(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v7(conn: sqlite3.Connection) -> None:
+    """Add expression indexes used by time-window filters."""
+
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_log_events_scope_julianday_time
+            ON log_events(account_id, gateway_id, julianday(created_at))
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_log_events_global_julianday_time
+            ON log_events(julianday(created_at))
+        """
+    )
+
+
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return {str(row[1]) for row in rows}
 
 
-MIGRATIONS: dict[int, MigrationFn] = {5: _migration_v5, 6: _migration_v6}
+MIGRATIONS: dict[int, MigrationFn] = {5: _migration_v5, 6: _migration_v6, 7: _migration_v7}
 
 
 def current_version(conn: sqlite3.Connection) -> int:

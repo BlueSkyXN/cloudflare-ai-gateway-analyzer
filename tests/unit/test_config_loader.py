@@ -15,7 +15,10 @@ from cf_aigw_analyzer.config import (
     resolve_yaml_path,
 )
 from cf_aigw_analyzer.config.settings import (
+    CONTROL_HOST_DEFAULT,
     CONTROL_PORT_DEFAULT,
+    LOGGING_LEVEL_DEFAULT,
+    STORAGE_DATA_DIR_DEFAULT,
 )
 
 
@@ -73,6 +76,68 @@ def test_empty_control_port_env_uses_default(
     monkeypatch.setenv("CF_AIGW_CONTROL__PORT", "")
     settings = load_settings(tmp_yaml)
     assert settings.control.port == CONTROL_PORT_DEFAULT
+
+
+def test_empty_storage_data_dir_env_uses_default(
+    isolated_env, tmp_yaml: Path, monkeypatch: pytest.MonkeyPatch
+):
+    tmp_yaml.write_text(
+        """
+        storage:
+          data_dir: /tmp/custom-aigw
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CF_AIGW_STORAGE__DATA_DIR", "")
+    settings = load_settings(tmp_yaml)
+    assert settings.storage.data_dir == STORAGE_DATA_DIR_DEFAULT
+    assert settings.storage.db_path == STORAGE_DATA_DIR_DEFAULT / settings.storage.db_filename
+
+
+def test_empty_control_host_env_uses_default(
+    isolated_env, tmp_yaml: Path, monkeypatch: pytest.MonkeyPatch
+):
+    tmp_yaml.write_text(
+        """
+        control:
+          host: 0.0.0.0
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CF_AIGW_CONTROL__HOST", "")
+    settings = load_settings(tmp_yaml)
+    assert settings.control.host == CONTROL_HOST_DEFAULT
+
+
+def test_empty_auth_token_env_is_unset(
+    isolated_env, tmp_yaml: Path, monkeypatch: pytest.MonkeyPatch
+):
+    tmp_yaml.write_text(
+        """
+        control:
+          auth_token: yaml-token
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CF_AIGW_CONTROL__AUTH_TOKEN", "")
+    settings = load_settings(tmp_yaml)
+    assert settings.control.auth_token is None
+    assert redact_settings(settings)["control"]["auth_token"] is None
+
+
+def test_empty_logging_level_env_uses_default(
+    isolated_env, tmp_yaml: Path, monkeypatch: pytest.MonkeyPatch
+):
+    tmp_yaml.write_text(
+        """
+        logging:
+          level: DEBUG
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CF_AIGW_LOGGING__LEVEL", "")
+    settings = load_settings(tmp_yaml)
+    assert settings.logging.level == LOGGING_LEVEL_DEFAULT
 
 
 def test_null_control_port_yaml_uses_default(isolated_env, tmp_yaml: Path):

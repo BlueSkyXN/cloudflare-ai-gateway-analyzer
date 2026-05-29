@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useConfig } from "@/hooks/queries";
+import { useConfig, useStatus } from "@/hooks/queries";
 import { useFilters } from "@/store/filters";
 import { formatBytes } from "@/utils/format";
 
@@ -8,6 +8,7 @@ const TOKEN_STORAGE_KEY = "cf-aigw-token";
 
 export function SettingsPage() {
   const { data: config } = useConfig();
+  const { data: status } = useStatus();
   const scope = useFilters((s) => s.scope);
   const model = useFilters((s) => s.model);
   const provider = useFilters((s) => s.provider);
@@ -108,9 +109,7 @@ export function SettingsPage() {
           <p>
             <span className="text-text">{config.storage.data_dir}/{config.storage.db_filename}</span>
             {" · "}
-            文件大小可通过 <code className="text-text">cf-aigw-analyzer status</code> 查看 →
-            {" "}
-            <span className="font-mono">{formatBytes(undefined)}</span>
+            文件大小 <span className="font-mono">{formatBytes(status?.database_bytes)}</span>
           </p>
         </section>
       )}
