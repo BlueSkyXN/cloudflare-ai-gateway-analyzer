@@ -79,6 +79,13 @@ class ControlConfig(_Section):
     default_account_id: str | None = None
     default_gateway_id: str | None = None
 
+    @field_validator("port", mode="before")
+    @classmethod
+    def _default_empty_port(cls, value: Any) -> Any:
+        if value is None or value == "":
+            return CONTROL_PORT_DEFAULT
+        return value
+
 
 class LoggingConfig(_Section):
     level: str = "INFO"

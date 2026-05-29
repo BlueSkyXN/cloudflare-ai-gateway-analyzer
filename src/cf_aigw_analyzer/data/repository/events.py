@@ -297,10 +297,10 @@ class EventRepository:
         params: list[Any] = [filters.account_id, filters.gateway_id]
 
         if filters.start_date:
-            clauses.append("e.created_at >= ?")
+            clauses.append("julianday(e.created_at) >= julianday(?)")
             params.append(parse_datetime_input(filters.start_date))
         if filters.end_date:
-            clauses.append("e.created_at <= ?")
+            clauses.append("julianday(e.created_at) <= julianday(?)")
             params.append(parse_datetime_input(filters.end_date))
         if filters.provider:
             clauses.append("e.provider = ?")
