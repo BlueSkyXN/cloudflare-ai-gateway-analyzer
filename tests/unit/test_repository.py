@@ -164,6 +164,29 @@ def test_query_search_uses_raw_json_table(db: AnalyzerDatabase) -> None:
     assert db.logs.query(filters_miss) == []
 
 
+def test_query_time_filters_include_iso_millisecond_boundaries(db: AnalyzerDatabase) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log("before", created_at="2026-05-22T01:09:59Z"),
+            _sample_log("boundary", created_at="2026-05-22T01:10:00Z"),
+            _sample_log("after", created_at="2026-05-22T01:10:01Z"),
+        ],
+    )
+
+    rows = db.logs.query(
+        LogQueryFilters(
+            account_id="acct",
+            gateway_id="gw",
+            start_date="2026-05-22T01:10:00.000Z",
+            end_date="2026-05-22T01:10:00.000Z",
+        )
+    )
+
+    assert [row["log_id"] for row in rows] == ["boundary"]
+
+
 # ---- usage backfill ------------------------------------------------------------
 
 

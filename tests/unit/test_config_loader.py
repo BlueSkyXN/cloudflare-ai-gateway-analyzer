@@ -60,6 +60,33 @@ def test_env_overrides_yaml(isolated_env, tmp_yaml: Path, monkeypatch: pytest.Mo
     assert settings.control.port == 7777  # env wins
 
 
+def test_empty_control_port_env_uses_default(
+    isolated_env, tmp_yaml: Path, monkeypatch: pytest.MonkeyPatch
+):
+    tmp_yaml.write_text(
+        """
+        control:
+          port: 9999
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CF_AIGW_CONTROL__PORT", "")
+    settings = load_settings(tmp_yaml)
+    assert settings.control.port == CONTROL_PORT_DEFAULT
+
+
+def test_null_control_port_yaml_uses_default(isolated_env, tmp_yaml: Path):
+    tmp_yaml.write_text(
+        """
+        control:
+          port: null
+        """,
+        encoding="utf-8",
+    )
+    settings = load_settings(tmp_yaml)
+    assert settings.control.port == CONTROL_PORT_DEFAULT
+
+
 def test_cf_api_token_env_is_recognised(isolated_env, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CF_API_TOKEN", "tok-from-env")
     settings = load_settings(None)
