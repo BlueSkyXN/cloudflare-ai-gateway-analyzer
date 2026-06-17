@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+REDACTED = "<redacted>"
+
 BODY_FIELD_KEYS = frozenset(
     {
         "request",
@@ -33,6 +35,23 @@ BODY_FIELD_KEYS = frozenset(
     }
 )
 
+GATEWAY_SECRET_KEYS = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "authorization",
+        "cookie",
+        "headers",
+        "password",
+        "secret",
+        "set-cookie",
+        "token",
+        "x-api-key",
+        "x-api-token",
+        "x-auth-key",
+    }
+)
+
 
 def sanitize_log_metadata(value: Any) -> Any:
     """Return a copy of ``value`` with body-like keys removed at every depth."""
@@ -45,4 +64,20 @@ def sanitize_log_metadata(value: Any) -> Any:
         }
     if isinstance(value, list):
         return [sanitize_log_metadata(item) for item in value]
+    return value
+
+
+def sanitize_gateway_metadata(value: Any) -> Any:
+    """Return gateway config metadata with secrets redacted but policy shape preserved."""
+
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, child in value.items():
+            if str(key).lower() in GATEWAY_SECRET_KEYS:
+                cleaned[key] = REDACTED
+            else:
+                cleaned[key] = sanitize_gateway_metadata(child)
+        return cleaned
+    if isinstance(value, list):
+        return [sanitize_gateway_metadata(item) for item in value]
     return value

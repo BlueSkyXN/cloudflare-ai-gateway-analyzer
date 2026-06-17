@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Iterable
 from typing import Any
 
-from cf_aigw_analyzer.core.sanitizer import sanitize_log_metadata
+from cf_aigw_analyzer.core.sanitizer import sanitize_gateway_metadata
 from cf_aigw_analyzer.data.db import json_dumps, transaction
 from cf_aigw_analyzer.utils.time import utc_now
 
@@ -26,6 +26,7 @@ class GatewaysRepository:
                 gateway_id = gateway.get("id") or gateway.get("gateway_id")
                 if not gateway_id:
                     continue
+                gateway_name = gateway.get("name") or str(gateway_id)
                 self.conn.execute(
                     """
                     INSERT INTO gateways (account_id, gateway_id, name, collect_logs, raw_json, fetched_at)
@@ -39,9 +40,9 @@ class GatewaysRepository:
                     (
                         account_id,
                         str(gateway_id),
-                        gateway.get("name"),
+                        gateway_name,
                         _as_bool_int(gateway.get("collect_logs")),
-                        json_dumps(sanitize_log_metadata(gateway)),
+                        json_dumps(sanitize_gateway_metadata(gateway)),
                         now,
                     ),
                 )

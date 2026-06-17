@@ -66,6 +66,42 @@ def test_gateway_upsert_is_idempotent(db: AnalyzerDatabase) -> None:
     assert listing[0]["collect_logs"] == 1
 
 
+def test_gateway_upsert_uses_id_as_display_name_when_name_missing(db: AnalyzerDatabase) -> None:
+    db.gateways.upsert_many("acct", [{"id": "open", "collect_logs": True}])
+
+    listing = db.gateways.list_for_account("acct")
+    assert listing[0]["gateway_id"] == "open"
+    assert listing[0]["name"] == "open"
+    assert db.gateways.resolve_gateway_id("acct", "open") == "open"
+
+
+def test_gateway_raw_json_uses_gateway_sanitizer(db: AnalyzerDatabase) -> None:
+    db.gateways.upsert_many(
+        "acct",
+        [
+            {
+                "id": "open",
+                "guardrails": {
+                    "prompt": {"S1": "BLOCK"},
+                    "response": {"S2": "FLAG"},
+                },
+                "otel": [{"headers": {"Authorization": "secret"}, "authorization": "secret"}],
+                "stripe": {"authorization": "secret"},
+            }
+        ],
+    )
+
+    row = db.conn.execute("SELECT raw_json FROM gateways WHERE gateway_id='open'").fetchone()
+    payload = json.loads(row["raw_json"])
+    assert payload["guardrails"] == {
+        "prompt": {"S1": "BLOCK"},
+        "response": {"S2": "FLAG"},
+    }
+    assert payload["otel"][0]["headers"] == "<redacted>"
+    assert payload["otel"][0]["authorization"] == "<redacted>"
+    assert payload["stripe"]["authorization"] == "<redacted>"
+
+
 # ---- log_events upsert (raw_json split + metrics) -----------------------------
 
 

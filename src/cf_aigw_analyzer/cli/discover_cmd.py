@@ -65,6 +65,6 @@ def gateways(
 
     for row in rows:
         flag = "logs" if row.get("collect_logs") else "off"
-        console.print(
-            f"- {row.get('id')}  {row.get('name')}  [{flag}]  created={row.get('created_at')}"
-        )
+        name = row.get("name") or row.get("id")
+        label = f"{row.get('id')}  {name}" if name != row.get("id") else str(row.get("id"))
+        console.print(f"- {label}  [{flag}]  created={row.get('created_at')}")

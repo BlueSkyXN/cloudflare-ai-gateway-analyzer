@@ -29,10 +29,10 @@ Verify with `python cli.py config validate`.
 ```bash
 python cli.py init                          # create SQLite + write template if missing
 python cli.py accounts                      # confirm credentials reach Cloudflare
-python cli.py gateways -a <ACCOUNT_ID> --save   # cache gateway names locally
+python cli.py gateways -a <ACCOUNT_ID> --save   # cache gateway ids locally
 ```
 
-`--save` writes the gateways into the `gateways` table so subsequent commands accept `--gateway-name` instead of UUIDs.
+`--save` writes the gateways into the `gateways` table so subsequent commands accept `--gateway-name` as either a cached display name or a gateway id. Cloudflare currently returns gateway ids as the stable label, so using the id is recommended.
 
 ## Metadata sync
 

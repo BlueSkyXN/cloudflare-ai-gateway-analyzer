@@ -16,7 +16,7 @@ Version 7 adds expression indexes for the existing `julianday(created_at)` time-
 
 - `log_events` is the single analytics-ready fact table. One Cloudflare AI Gateway log equals one row.
 - `log_raw` stores sanitized `raw_json` only when raw inspection is needed; regular analytics should not scan it.
-- `gateways` caches account-scoped gateway metadata so commands can resolve `--gateway-name` locally after discovery.
+- `gateways` caches account-scoped gateway metadata so commands can resolve `--gateway-name` locally after discovery. Cloudflare may omit a separate gateway `name`; in that case the stable `gateway_id` is also stored as the display name.
 - `sync_runs` is an audit log; `sync_state` stores incremental checkpoints; `sync_locks` prevents duplicate per-scope writers.
 - `migrations` records schema application history.
 
@@ -39,7 +39,7 @@ Cached Cloudflare gateway metadata.
 | --------------- | ------- | ------------------------------------------------ |
 | `account_id`    | TEXT    | Part of composite primary key.                   |
 | `gateway_id`    | TEXT    | Part of composite primary key.                   |
-| `name`          | TEXT    | Gateway display name.                            |
+| `name`          | TEXT    | Gateway display name; falls back to `gateway_id`. |
 | `collect_logs`  | INTEGER | 0/1; null when Cloudflare did not return it.     |
 | `raw_json`      | TEXT    | Sanitized gateway payload.                       |
 | `fetched_at`    | TEXT    | ISO 8601 UTC.                                    |
