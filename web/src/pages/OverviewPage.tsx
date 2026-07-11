@@ -59,7 +59,7 @@ export function OverviewPage() {
         />
         <KpiCard label="总 Tokens" value={formatInt(summary?.total_tokens)} />
         <KpiCard label="平均总耗时" value={formatDuration(summary?.avg_total_ms)} />
-        <KpiCard label="平均输入 TPS" value={formatFloat(summary?.avg_input_tps)} />
+        <KpiCard label="平均估算输入 TPS" value={formatFloat(summary?.avg_input_tps)} />
         <KpiCard label="平均输出 TPS" value={formatFloat(summary?.avg_output_tps)} />
         <KpiCard label="输入 Tokens" value={formatInt(summary?.input_tokens)} />
         <KpiCard label="输出 Tokens" value={formatInt(summary?.output_tokens)} />

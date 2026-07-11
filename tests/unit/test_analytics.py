@@ -192,3 +192,69 @@ def test_summary_empty_when_no_data(tmp_path: Path) -> None:
         payload = build_analytics(conn, AnalyticsFilters())
     assert payload["summary"]["requests"] == 0
     assert payload["summary"]["total_tokens"] == 0
+
+
+def test_tail_percentiles_use_nearest_rank_for_small_samples(tmp_path: Path) -> None:
+    path = tmp_path / "percentiles.sqlite"
+    with AnalyzerDatabase(path) as db:
+        db.logs.upsert_many(
+            "acct",
+            "gw",
+            [
+                {
+                    "id": "fast",
+                    "created_at": "2026-05-22T00:00:00Z",
+                    "model": "small-sample",
+                    "timings": {"total": 100.0, "latency": 50.0},
+                },
+                {
+                    "id": "slow",
+                    "created_at": "2026-05-22T00:01:00Z",
+                    "model": "small-sample",
+                    "timings": {"total": 1000.0, "latency": 100.0},
+                },
+            ],
+        )
+
+    with open_readonly_connection(path) as conn:
+        payload = build_analytics(conn, AnalyticsFilters(account_id="acct", gateway_id="gw"))
+
+    assert payload["summary"]["p95_total_ms"] == 1000.0
+    assert payload["summary"]["p99_total_ms"] == 1000.0
+    assert payload["by_model"][0]["p95_total_ms"] == 1000.0
+
+
+def test_model_p95_is_populated_beyond_first_twenty_five_models(tmp_path: Path) -> None:
+    path = tmp_path / "many-models.sqlite"
+    with AnalyzerDatabase(path) as db:
+        db.logs.upsert_many(
+            "acct",
+            "gw",
+            [
+                {
+                    "id": f"log-{index}",
+                    "created_at": f"2026-05-22T00:{index:02d}:00Z",
+                    "model": f"model-{index:02d}",
+                    "timings": {"total": float(100 + index), "latency": 50.0},
+                }
+                for index in range(30)
+            ],
+        )
+
+    with open_readonly_connection(path) as conn:
+        payload = build_analytics(conn, AnalyticsFilters(account_id="acct", gateway_id="gw"))
+
+    assert len(payload["by_model"]) == 30
+    assert all(row["p95_total_ms"] is not None for row in payload["by_model"])
+
+
+def test_analytics_ignores_events_without_parseable_created_at(tmp_path: Path) -> None:
+    path = tmp_path / "missing-time.sqlite"
+    with AnalyzerDatabase(path) as db:
+        db.logs.upsert_many("acct", "gw", [{"id": "no-time", "model": "unknown-time"}])
+
+    with open_readonly_connection(path) as conn:
+        payload = build_analytics(conn, AnalyticsFilters(account_id="acct", gateway_id="gw"))
+
+    assert payload["summary"]["requests"] == 1
+    assert payload["timeseries"] == []

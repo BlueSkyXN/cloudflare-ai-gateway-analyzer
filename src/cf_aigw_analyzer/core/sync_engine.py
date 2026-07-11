@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
+from itertools import chain
 from typing import Any
 
 import httpx
@@ -86,6 +86,8 @@ class SyncEngine:
         limit: int | None = None,
         incremental: bool = False,
     ) -> SyncMetadataResult:
+        if incremental and limit is not None:
+            raise ValueError("incremental sync cannot be combined with limit")
         owner = _lock_owner()
         self.db.sync_locks.acquire(account_id, gateway_id, "sync", owner)
         started_at = utc_now()
@@ -153,7 +155,7 @@ class SyncEngine:
         *,
         missing_only: bool = False,
         refresh: bool = False,
-        retry_failed: bool = True,
+        retry_failed: bool | None = None,
         workers: int | None = None,
         limit: int | None = None,
     ) -> SyncUsageResult:
@@ -161,15 +163,24 @@ class SyncEngine:
         self.db.sync_locks.acquire(account_id, gateway_id, "sync-usage", owner)
         started_at = utc_now()
         try:
-            targets = self.db.logs.usage_targets(
+            effective_retry_failed = (
+                self.settings.sync.retry_failed if retry_failed is None else retry_failed
+            )
+            worker_count = workers if workers is not None else self.settings.sync.usage_workers
+            worker_count = min(64, max(1, worker_count))
+            batch_size = self.settings.sync.usage_batch_size
+            batches = self.db.logs.iter_usage_target_batches(
                 account_id,
                 gateway_id,
                 missing_only=missing_only,
                 refresh=refresh,
-                retry_failed=retry_failed,
+                retry_failed=effective_retry_failed,
+                batch_size=batch_size,
                 limit=limit,
+                failed_before=started_at,
             )
-            if not targets:
+            first_batch = next(batches, None)
+            if not first_batch:
                 self.db.sync_state.record_success(account_id, gateway_id, "sync-usage")
                 run_id = self.db.sync_runs.record(
                     account_id,
@@ -178,7 +189,9 @@ class SyncEngine:
                     params={
                         "missing_only": missing_only,
                         "refresh": refresh,
-                        "retry_failed": retry_failed,
+                        "retry_failed": effective_retry_failed,
+                        "workers": worker_count,
+                        "batch_size": batch_size,
                         "limit": limit,
                     },
                     started_at=started_at,
@@ -187,10 +200,9 @@ class SyncEngine:
                     targets=0, started_at=started_at, finished_at=utc_now(), run_id=run_id
                 )
 
-            worker_count = workers if workers is not None else self.settings.sync.usage_workers
-            semaphore = asyncio.Semaphore(max(1, worker_count))
+            semaphore = asyncio.Semaphore(worker_count)
             errors: list[str] = []
-            counters = SyncUsageResult(targets=len(targets), started_at=started_at)
+            counters = SyncUsageResult(started_at=started_at)
 
             async def process(log_id: str) -> None:
                 """Fetch + parse + persist one log's usage.
@@ -250,12 +262,13 @@ class SyncEngine:
                             )
 
             try:
-                await asyncio.gather(
-                    *(process(log_id) for log_id in targets),
-                    return_exceptions=False,
-                )
+                for targets in chain((first_batch,), batches):
+                    counters.targets += len(targets)
+                    await asyncio.gather(
+                        *(process(log_id) for log_id in targets),
+                        return_exceptions=False,
+                    )
             finally:
-                self.db.sync_state.record_success(account_id, gateway_id, "sync-usage")
                 counters.errors = errors
                 counters.finished_at = utc_now()
                 counters.run_id = self.db.sync_runs.record(
@@ -265,8 +278,9 @@ class SyncEngine:
                     params={
                         "missing_only": missing_only,
                         "refresh": refresh,
-                        "retry_failed": retry_failed,
+                        "retry_failed": effective_retry_failed,
                         "workers": worker_count,
+                        "batch_size": batch_size,
                         "limit": limit,
                     },
                     usage_fetched=counters.fetched,
@@ -275,6 +289,7 @@ class SyncEngine:
                     usage_failed=counters.failed,
                     started_at=started_at,
                 )
+            self.db.sync_state.record_success(account_id, gateway_id, "sync-usage")
             return counters
         finally:
             self.db.sync_locks.release(account_id, gateway_id, "sync-usage", owner)
@@ -290,14 +305,19 @@ class SyncEngine:
             return filters
         if filters.start_date or filters.end_date:
             raise ValueError("incremental sync cannot be combined with explicit start/end dates")
+        if filters.order_by not in (None, "created_at") or (
+            filters.direction is not None and filters.direction.lower() != "asc"
+        ):
+            raise ValueError("incremental sync requires created_at ascending order")
+        effective_filters = replace(filters, order_by="created_at", direction="asc")
         state = self.db.sync_state.get(account_id, gateway_id, "sync")
         if not state or not state.get("last_seen_created_at"):
-            return filters
+            return effective_filters
         start_date = _minus_minutes(
             str(state["last_seen_created_at"]),
             self.settings.sync.incremental_overlap_minutes,
         )
-        return replace(filters, start_date=start_date)
+        return replace(effective_filters, start_date=start_date)
 
     async def _fetch_usage_payload(
         self,
@@ -349,19 +369,6 @@ class SyncEngine:
                 http_status,
                 error,
             )
-
-
-def chunk(iterable: Iterable[Any], size: int) -> Iterable[list[Any]]:
-    """Yield ``iterable`` in fixed-size lists (used for batched persistence)."""
-
-    batch: list[Any] = []
-    for item in iterable:
-        batch.append(item)
-        if len(batch) >= size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
 
 
 def _lock_owner() -> str:

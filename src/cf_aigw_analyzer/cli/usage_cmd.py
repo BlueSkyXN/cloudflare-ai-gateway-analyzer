@@ -50,7 +50,7 @@ def sync_usage(
                     resolved_gateway,
                     missing_only=missing_only,
                     refresh=refresh,
-                    retry_failed=not no_retry_failed,
+                    retry_failed=False if no_retry_failed else None,
                     workers=workers,
                     limit=limit,
                 )

@@ -169,6 +169,45 @@ def test_usage_targets_missing_only_skips_parsed_usage(db: AnalyzerDatabase) -> 
     assert db.logs.usage_targets("acct", "gw", missing_only=True) == []
 
 
+def test_usage_targets_missing_only_excludes_failed(db: AnalyzerDatabase) -> None:
+    db.logs.upsert_many("acct", "gw", [_sample_log("failed"), _sample_log("missing")])
+    db.logs.upsert_usage("acct", "gw", "failed", UsageFields(), FetchStatus.FAILED, 500, "boom")
+
+    assert db.logs.usage_targets("acct", "gw", missing_only=True, retry_failed=True) == ["missing"]
+
+
+def test_usage_target_batches_are_bounded_and_prioritize_missing(
+    db: AnalyzerDatabase,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log("failed-1"),
+            _sample_log("missing-1"),
+            _sample_log("failed-2"),
+            _sample_log("missing-2"),
+        ],
+    )
+    for log_id in ("failed-1", "failed-2"):
+        db.logs.upsert_usage("acct", "gw", log_id, UsageFields(), FetchStatus.FAILED, 500, "boom")
+
+    batches = list(
+        db.logs.iter_usage_target_batches(
+            "acct",
+            "gw",
+            retry_failed=True,
+            batch_size=1,
+            failed_before="9999-12-31T23:59:59Z",
+        )
+    )
+    flattened = [log_id for batch in batches for log_id in batch]
+
+    assert all(len(batch) <= 1 for batch in batches)
+    assert set(flattened[:2]) == {"missing-1", "missing-2"}
+    assert set(flattened[2:]) == {"failed-1", "failed-2"}
+
+
 # ---- query --------------------------------------------------------------------
 
 
@@ -250,6 +289,42 @@ def test_upsert_usage_fills_tokens_and_metrics(db: AnalyzerDatabase) -> None:
     assert pytest.approx(row["ms_per_output_token"], rel=1e-3) == 100.0
     assert row["visible_output_tokens"] == 14
     assert pytest.approx(row["visible_output_tps"], rel=1e-3) == 14 / 2.1
+
+
+def test_metadata_refresh_recomputes_metrics_from_parsed_usage(db: AnalyzerDatabase) -> None:
+    db.logs.upsert_many("acct", "gw", [_sample_log("a")])
+    db.logs.upsert_usage(
+        "acct",
+        "gw",
+        "a",
+        UsageFields(input_tokens=100, output_tokens=20, total_tokens=120, reasoning_tokens=5),
+        FetchStatus.PARSED,
+        200,
+        None,
+    )
+
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log(
+                "a",
+                tokens_in=1,
+                tokens_out=1,
+                timings={"total": 3000.0, "latency": 800.0},
+            )
+        ],
+    )
+
+    row = db.conn.execute("SELECT * FROM log_events WHERE log_id='a'").fetchone()
+    assert row["input_tokens"] == 100
+    assert row["output_tokens"] == 20
+    assert row["latency_ms"] == 800.0
+    assert row["generation_ms"] == 2200.0
+    assert row["input_tps"] == pytest.approx(125.0)
+    assert row["output_tps"] == pytest.approx(20 / 2.2)
+    assert row["visible_output_tokens"] == 15
+    assert row["visible_output_tps"] == pytest.approx(15 / 2.2)
 
 
 # ---- summary ------------------------------------------------------------------

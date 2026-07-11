@@ -20,7 +20,7 @@ export function ModelsPage() {
 
   const modelOption = useMemo(
     () => ({
-      legend: { data: ["请求数", "输入 TPS", "输出 TPS"], top: 0 },
+      legend: { data: ["请求数", "估算输入 TPS", "输出 TPS"], top: 0 },
       xAxis: { type: "category", data: topModelRows.map((m) => m.model) },
       yAxis: [
         { type: "value", name: "请求数" },
@@ -33,7 +33,7 @@ export function ModelsPage() {
           data: topModelRows.map((m) => m.requests),
         },
         {
-          name: "输入 TPS",
+          name: "估算输入 TPS",
           type: "line",
           yAxisIndex: 1,
           data: topModelRows.map((m) => (m.avg_input_tps ?? 0).toFixed(2)),
@@ -114,7 +114,7 @@ export function ModelsPage() {
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="panel-lg">
           <h2 className="text-sm font-medium text-text-dim mb-2">
-            模型请求量 · 输入/输出 TPS
+            模型请求量 · 估算输入/输出 TPS
           </h2>
           <Chart option={modelOption} />
         </div>
@@ -150,7 +150,7 @@ export function ModelsPage() {
                 <th>非思考输出</th>
                 <th>平均总耗时</th>
                 <th>P95</th>
-                <th>输入 TPS</th>
+                <th>估算输入 TPS</th>
                 <th>输出 TPS</th>
               </tr>
             </thead>
@@ -198,7 +198,7 @@ export function ModelsPage() {
                 <th>Tokens</th>
                 <th>平均总耗时</th>
                 <th>平均输出时间</th>
-                <th>输入 TPS</th>
+                <th>估算输入 TPS</th>
                 <th>输出 TPS</th>
               </tr>
             </thead>

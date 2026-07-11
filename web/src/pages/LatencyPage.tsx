@@ -50,12 +50,12 @@ export function LatencyPage() {
 
   const inputTpsOption = useMemo(
     () => ({
-      legend: { data: ["输入 TPS"], top: 0 },
+      legend: { data: ["估算输入 TPS"], top: 0 },
       xAxis: { type: "category", data: points.map((p) => p.hour) },
       yAxis: { type: "value", name: "tokens/s" },
       series: [
         {
-          name: "输入 TPS",
+          name: "估算输入 TPS",
           type: "line",
           smooth: true,
           data: points.map((p) => rounded(p.avg_input_tps)),
@@ -95,7 +95,7 @@ export function LatencyPage() {
         <KpiCard label="平均首段延迟" value={formatDuration(summary?.avg_latency_ms)} />
         <KpiCard label="平均输出时间" value={formatDuration(summary?.avg_generation_ms)} />
         <KpiCard label="P95 总耗时" value={formatDuration(summary?.p95_total_ms)} />
-        <KpiCard label="平均输入 TPS" value={formatFloat(summary?.avg_input_tps)} />
+        <KpiCard label="平均估算输入 TPS" value={formatFloat(summary?.avg_input_tps)} />
         <KpiCard label="平均输出 TPS" value={formatFloat(summary?.avg_output_tps)} />
       </section>
 
@@ -105,7 +105,9 @@ export function LatencyPage() {
       </section>
 
       <section className="panel-lg">
-        <h2 className="text-sm font-medium text-text-dim mb-2">按{bucketLabel}输入 TPS</h2>
+        <h2 className="text-sm font-medium text-text-dim mb-2">
+          按{bucketLabel}估算输入 TPS
+        </h2>
         <Chart option={inputTpsOption} group={LATENCY_CHART_GROUP} />
       </section>
 

@@ -88,7 +88,7 @@ def sync(
                         resolved_gateway,
                         missing_only=missing_only,
                         refresh=refresh_usage,
-                        retry_failed=not no_retry_failed,
+                        retry_failed=False if no_retry_failed else None,
                         workers=usage_workers,
                         limit=usage_limit,
                     )

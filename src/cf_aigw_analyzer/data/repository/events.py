@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 from cf_aigw_analyzer.core.metrics import compute_log_metrics
@@ -63,17 +63,17 @@ class EventRepository:
                         cost_usd=excluded.cost_usd,
                         input_tokens=CASE
                             WHEN log_events.usage_fetch_status='parsed'
-                            THEN log_events.input_tokens
+                            THEN COALESCE(log_events.input_tokens, excluded.input_tokens)
                             ELSE excluded.input_tokens
                         END,
                         output_tokens=CASE
                             WHEN log_events.usage_fetch_status='parsed'
-                            THEN log_events.output_tokens
+                            THEN COALESCE(log_events.output_tokens, excluded.output_tokens)
                             ELSE excluded.output_tokens
                         END,
                         total_tokens=CASE
                             WHEN log_events.usage_fetch_status='parsed'
-                            THEN log_events.total_tokens
+                            THEN COALESCE(log_events.total_tokens, excluded.total_tokens)
                             ELSE excluded.total_tokens
                         END,
                         duration_ms=excluded.duration_ms,
@@ -82,27 +82,54 @@ class EventRepository:
                         generation_ms=excluded.generation_ms,
                         input_tps=CASE
                             WHEN log_events.usage_fetch_status='parsed'
-                            THEN log_events.input_tps
+                              AND COALESCE(log_events.input_tokens, excluded.input_tokens) > 0
+                              AND excluded.latency_ms > 0
+                            THEN COALESCE(log_events.input_tokens, excluded.input_tokens)
+                                 / (excluded.latency_ms / 1000.0)
+                            WHEN log_events.usage_fetch_status='parsed' THEN NULL
                             ELSE excluded.input_tps
                         END,
                         output_tps=CASE
                             WHEN log_events.usage_fetch_status='parsed'
-                            THEN log_events.output_tps
+                              AND COALESCE(log_events.output_tokens, excluded.output_tokens) > 0
+                              AND excluded.generation_ms > 0
+                            THEN COALESCE(log_events.output_tokens, excluded.output_tokens)
+                                 / (excluded.generation_ms / 1000.0)
+                            WHEN log_events.usage_fetch_status='parsed' THEN NULL
                             ELSE excluded.output_tps
                         END,
                         ms_per_output_token=CASE
                             WHEN log_events.usage_fetch_status='parsed'
-                            THEN log_events.ms_per_output_token
+                              AND COALESCE(log_events.output_tokens, excluded.output_tokens) > 0
+                              AND excluded.generation_ms > 0
+                            THEN excluded.generation_ms
+                                 / COALESCE(log_events.output_tokens, excluded.output_tokens)
+                            WHEN log_events.usage_fetch_status='parsed' THEN NULL
                             ELSE excluded.ms_per_output_token
                         END,
                         visible_output_tokens=CASE
                             WHEN log_events.usage_fetch_status='parsed'
-                            THEN log_events.visible_output_tokens
+                              AND COALESCE(log_events.output_tokens, excluded.output_tokens) IS NOT NULL
+                              AND log_events.reasoning_tokens IS NOT NULL
+                            THEN MAX(
+                                COALESCE(log_events.output_tokens, excluded.output_tokens)
+                                    - log_events.reasoning_tokens,
+                                0
+                            )
+                            WHEN log_events.usage_fetch_status='parsed' THEN NULL
                             ELSE excluded.visible_output_tokens
                         END,
                         visible_output_tps=CASE
                             WHEN log_events.usage_fetch_status='parsed'
-                            THEN log_events.visible_output_tps
+                              AND COALESCE(log_events.output_tokens, excluded.output_tokens) IS NOT NULL
+                              AND log_events.reasoning_tokens IS NOT NULL
+                              AND excluded.generation_ms > 0
+                            THEN MAX(
+                                COALESCE(log_events.output_tokens, excluded.output_tokens)
+                                    - log_events.reasoning_tokens,
+                                0
+                            ) / (excluded.generation_ms / 1000.0)
+                            WHEN log_events.usage_fetch_status='parsed' THEN NULL
                             ELSE excluded.visible_output_tps
                         END,
                         synced_at=excluded.synced_at,
@@ -275,7 +302,7 @@ class EventRepository:
 
         if not refresh:
             status_clauses = ["usage_fetch_status IS NULL"]
-            if retry_failed:
+            if retry_failed and not missing_only:
                 status_clauses.append("usage_fetch_status = 'failed'")
             clauses.append(f"({' OR '.join(status_clauses)})")
 
@@ -283,7 +310,10 @@ class EventRepository:
             SELECT log_id
             FROM log_events
             WHERE {" AND ".join(clauses)}
-            ORDER BY created_at DESC
+            ORDER BY
+                CASE WHEN usage_fetch_status IS NULL THEN 0 ELSE 1 END,
+                created_at DESC,
+                log_id DESC
         """
         if limit is not None:
             sql += " LIMIT ?"
@@ -291,6 +321,93 @@ class EventRepository:
 
         rows = self.conn.execute(sql, params).fetchall()
         return [str(row["log_id"]) for row in rows]
+
+    def iter_usage_target_batches(
+        self,
+        account_id: str,
+        gateway_id: str,
+        *,
+        missing_only: bool = False,
+        refresh: bool = False,
+        retry_failed: bool = True,
+        batch_size: int = 50,
+        limit: int | None = None,
+        failed_before: str | None = None,
+    ) -> Iterator[list[str]]:
+        """Yield a stable, memory-bounded snapshot of usage targets.
+
+        Missing rows are always processed before failed rows. A row that fails
+        during the current run is excluded from the failed phase via
+        ``failed_before`` so it is not retried twice in the same invocation.
+        ``rowid`` keyset pagination avoids OFFSET drift as statuses are updated.
+        """
+
+        safe_batch_size = max(1, int(batch_size))
+        remaining = max(0, int(limit)) if limit is not None else None
+        if remaining == 0:
+            return
+
+        snapshot = self.conn.execute(
+            """
+            SELECT MAX(rowid) AS max_rowid
+            FROM log_events
+            WHERE account_id=? AND gateway_id=?
+            """,
+            (account_id, gateway_id),
+        ).fetchone()
+        max_rowid = int(snapshot["max_rowid"]) if snapshot and snapshot["max_rowid"] else None
+        if max_rowid is None:
+            return
+
+        phases: list[str]
+        if refresh:
+            phases = ["all"]
+        else:
+            phases = ["missing"]
+            if retry_failed and not missing_only:
+                phases.append("failed")
+
+        for phase in phases:
+            before_rowid = max_rowid + 1
+            while remaining is None or remaining > 0:
+                clauses = [
+                    "account_id = ?",
+                    "gateway_id = ?",
+                    "rowid <= ?",
+                    "rowid < ?",
+                ]
+                params: list[Any] = [account_id, gateway_id, max_rowid, before_rowid]
+                if phase == "missing":
+                    clauses.append("usage_fetch_status IS NULL")
+                elif phase == "failed":
+                    clauses.append("usage_fetch_status = 'failed'")
+                    if failed_before is not None:
+                        clauses.append("(usage_fetched_at IS NULL OR usage_fetched_at < ?)")
+                        params.append(failed_before)
+
+                query_limit = (
+                    safe_batch_size if remaining is None else min(safe_batch_size, remaining)
+                )
+                params.append(query_limit)
+                rows = self.conn.execute(
+                    f"""
+                    SELECT rowid, log_id
+                    FROM log_events
+                    WHERE {" AND ".join(clauses)}
+                    ORDER BY rowid DESC
+                    LIMIT ?
+                    """,
+                    params,
+                ).fetchall()
+                if not rows:
+                    break
+
+                yield [str(row["log_id"]) for row in rows]
+                before_rowid = int(rows[-1]["rowid"])
+                if remaining is not None:
+                    remaining -= len(rows)
+            if remaining == 0:
+                break
 
     def query(self, filters: LogQueryFilters) -> list[dict[str, Any]]:
         clauses = ["e.account_id = ?", "e.gateway_id = ?"]
