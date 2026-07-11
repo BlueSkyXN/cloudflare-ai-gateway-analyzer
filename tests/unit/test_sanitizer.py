@@ -104,3 +104,22 @@ def test_gateway_metadata_redacts_secrets_but_keeps_policy_shape() -> None:
         },
         "logpush_public_key": "public",
     }
+
+
+def test_gateway_metadata_redacts_secret_key_aliases() -> None:
+    secret_keys = (
+        "secretKey",
+        "privateKey",
+        "IDToken",
+        "APIToken",
+        "AuthorizationHeader",
+    )
+    payload = {
+        "nested": {key: f"MARKER-{key}" for key in secret_keys},
+    }
+
+    cleaned = sanitize_gateway_metadata(payload)
+
+    assert cleaned == {
+        "nested": dict.fromkeys(secret_keys, REDACTED),
+    }

@@ -102,6 +102,33 @@ def test_gateway_raw_json_uses_gateway_sanitizer(db: AnalyzerDatabase) -> None:
     assert payload["stripe"]["authorization"] == "<redacted>"
 
 
+def test_gateway_raw_json_does_not_persist_secret_key_aliases(db: AnalyzerDatabase) -> None:
+    secret_values = {
+        "secretKey": "MARKER-secret-key",
+        "privateKey": "MARKER-private-key",
+        "IDToken": "MARKER-id-token",
+        "APIToken": "MARKER-api-token",
+        "AuthorizationHeader": "MARKER-authorization-header",
+    }
+    db.gateways.upsert_many(
+        "acct",
+        [
+            {
+                "id": "open",
+                "nested": secret_values,
+            }
+        ],
+    )
+
+    row = db.conn.execute("SELECT raw_json FROM gateways WHERE gateway_id='open'").fetchone()
+    raw_json = row["raw_json"]
+    payload = json.loads(raw_json)
+
+    assert payload["nested"] == dict.fromkeys(secret_values, "<redacted>")
+    for marker in secret_values.values():
+        assert marker not in raw_json
+
+
 # ---- log_events upsert (raw_json split + metrics) -----------------------------
 
 

@@ -125,6 +125,86 @@ async def test_incremental_sync_uses_checkpoint_overlap(db: AnalyzerDatabase) ->
 
 
 @pytest.mark.asyncio
+async def test_sync_logs_checkpoint_ignores_invalid_created_at_and_normalizes_utc(
+    db: AnalyzerDatabase,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "result_info": {"total_count": 2},
+                "result": [
+                    {"id": "valid", "created_at": "2026-07-01T08:00:00+08:00"},
+                    {"id": "invalid", "created_at": "unknown"},
+                ],
+            },
+        )
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        result = await engine.sync_logs("acct", "gw", LogFilters(per_page=2))
+
+    assert result.logs_count == 2
+    state = db.sync_state.get("acct", "gw", "sync")
+    assert state is not None
+    assert state["last_seen_created_at"] == "2026-07-01T00:00:00Z"
+    assert state["last_seen_log_id"] == "valid"
+
+
+@pytest.mark.asyncio
+async def test_invalid_incremental_checkpoint_fails_before_upstream_and_full_sync_repairs_it(
+    db: AnalyzerDatabase,
+) -> None:
+    db.conn.execute(
+        """
+        INSERT INTO sync_state (
+            account_id, gateway_id, mode, last_success_at,
+            last_seen_created_at, last_seen_log_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "acct",
+            "gw",
+            "sync",
+            "2026-07-01T00:00:00Z",
+            "unknown",
+            "bad",
+            "2026-07-01T00:00:00Z",
+        ),
+    )
+    seen_queries: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_queries.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "result_info": {"total_count": 1},
+                "result": [{"id": "valid", "created_at": "2026-07-01T08:00:00+08:00"}],
+            },
+        )
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        with pytest.raises(ValueError, match="invalid incremental checkpoint"):
+            await engine.sync_logs("acct", "gw", LogFilters(per_page=2), incremental=True)
+        assert seen_queries == []
+
+        result = await engine.sync_logs("acct", "gw", LogFilters(per_page=2))
+
+    assert result.logs_count == 1
+    assert len(seen_queries) == 1
+    state = db.sync_state.get("acct", "gw", "sync")
+    assert state is not None
+    assert state["last_seen_created_at"] == "2026-07-01T00:00:00Z"
+    assert state["last_seen_log_id"] == "valid"
+
+
+@pytest.mark.asyncio
 async def test_incremental_sync_rejects_limit(db: AnalyzerDatabase) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError("unsafe incremental+limit must fail before calling upstream")
@@ -338,6 +418,70 @@ async def test_sync_usage_uses_config_retry_failed_default(db: AnalyzerDatabase)
 
     assert result.targets == 1
     assert requested == ["/client/v4/accounts/acct/ai-gateway/gateways/gw/logs/missing/response"]
+
+
+@pytest.mark.asyncio
+async def test_sync_usage_retries_previous_run_failure_started_in_same_second(
+    db: AnalyzerDatabase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [{"id": "failed", "created_at": "2026-07-01T00:00:00Z"}],
+    )
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.core.sync_engine.utc_now",
+        lambda: "2026-07-01T12:00:00Z",
+    )
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.data.repository.events.utc_now",
+        lambda: "2026-07-01T12:00:00Z",
+    )
+    precise_times = iter(
+        [
+            "2026-07-01T12:00:00.000100Z",
+            "2026-07-01T12:00:00.000200Z",
+            "2026-07-01T12:00:00.000300Z",
+            "2026-07-01T12:00:00.000400Z",
+        ]
+    )
+
+    def precise_now() -> str:
+        return next(precise_times)
+
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.core.sync_engine.utc_now_precise",
+        precise_now,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.data.repository.events.utc_now_precise",
+        precise_now,
+        raising=False,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"success": False, "errors": [{"message": "boom"}]})
+
+    settings = _make_settings(
+        sync=SyncConfig(
+            per_page=2,
+            log_throttle_ms=0,
+            usage_workers=1,
+            usage_batch_size=1,
+            retry_failed=True,
+        )
+    )
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        first = await engine.sync_usage("acct", "gw", retry_failed=True)
+        second = await engine.sync_usage("acct", "gw", retry_failed=True)
+
+    assert first.targets == 1
+    assert first.failed == 1
+    assert second.targets == 1
+    assert second.failed == 1
 
 
 @pytest.mark.asyncio

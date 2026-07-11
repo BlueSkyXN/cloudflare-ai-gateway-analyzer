@@ -90,16 +90,21 @@ TIMING_FIELD_KEYS = frozenset(
 GATEWAY_SECRET_KEYS = frozenset(
     {
         "api_key",
+        "api_token",
         "apikey",
         "access_token",
         "auth",
         "authorization",
+        "authorization_header",
         "client_secret",
         "cookie",
         "credentials",
         "headers",
+        "id_token",
         "password",
+        "private_key",
         "secret",
+        "secret_key",
         "set_cookie",
         "token",
         "x_api_key",
@@ -152,7 +157,8 @@ def sanitize_gateway_metadata(value: Any) -> Any:
 
 
 def _normalize_key(value: Any) -> str:
-    text = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(value))
+    text = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", str(value))
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", text)
     return text.replace("-", "_").replace(" ", "_").lower()
 
 
@@ -177,12 +183,15 @@ def _is_gateway_secret_key(value: Any) -> bool:
         (
             "_api_key",
             "_authorization",
+            "_authorization_header",
             "_auth_key",
             "_cookie",
             "_credentials",
             "_headers",
             "_password",
+            "_private_key",
             "_secret",
+            "_secret_key",
             "_token",
         )
     )

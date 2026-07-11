@@ -11,7 +11,7 @@ from cf_aigw_analyzer.core.sanitizer import sanitize_log_metadata
 from cf_aigw_analyzer.data.db import json_dumps, transaction
 from cf_aigw_analyzer.data.models import LogQueryFilters, UsageFields
 from cf_aigw_analyzer.models.enums import FetchStatus
-from cf_aigw_analyzer.utils.time import parse_datetime_input, utc_now
+from cf_aigw_analyzer.utils.time import parse_datetime_input, utc_now, utc_now_precise
 
 
 class EventRepository:
@@ -187,6 +187,7 @@ class EventRepository:
         error_message: str | None,
     ) -> None:
         now = utc_now()
+        usage_fetched_at = utc_now_precise()
         status_value = fetch_status.value if isinstance(fetch_status, FetchStatus) else fetch_status
         with transaction(self.conn):
             row = self.conn.execute(
@@ -280,7 +281,7 @@ class EventRepository:
                     status_value,
                     http_status_code,
                     error_message,
-                    now,
+                    usage_fetched_at,
                     now,
                     account_id,
                     gateway_id,
@@ -396,8 +397,27 @@ class EventRepository:
                 elif phase == "failed":
                     clauses.append("usage_fetch_status = 'failed'")
                     if failed_before is not None:
-                        clauses.append("(usage_fetched_at IS NULL OR usage_fetched_at < ?)")
-                        params.append(failed_before)
+                        # SQLite rounds julianday values to milliseconds. The
+                        # fixed-width UTC tie-break preserves microsecond ordering;
+                        # legacy second-only values are treated as ``.000000Z``.
+                        clauses.append(
+                            """(
+                                usage_fetched_at IS NULL
+                                OR julianday(usage_fetched_at) IS NULL
+                                OR julianday(usage_fetched_at) < julianday(?)
+                                OR (
+                                    julianday(usage_fetched_at) = julianday(?)
+                                    AND CASE
+                                        WHEN usage_fetched_at
+                                                GLOB '????-??-??T??:??:??Z'
+                                            THEN substr(usage_fetched_at, 1, 19)
+                                                || '.000000Z'
+                                        ELSE usage_fetched_at
+                                    END < ?
+                                )
+                            )"""
+                        )
+                        params.extend([failed_before, failed_before, failed_before])
 
                 query_limit = (
                     safe_batch_size if remaining is None else min(safe_batch_size, remaining)

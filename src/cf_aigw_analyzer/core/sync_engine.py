@@ -18,7 +18,7 @@ from cf_aigw_analyzer.core.usage_parser import parse_usage_from_response
 from cf_aigw_analyzer.data.db import AnalyzerDatabase, transaction
 from cf_aigw_analyzer.data.models import UsageFields
 from cf_aigw_analyzer.models.enums import FetchStatus
-from cf_aigw_analyzer.utils.time import utc_now
+from cf_aigw_analyzer.utils.time import utc_now, utc_now_precise
 
 
 @dataclass(slots=True)
@@ -162,6 +162,7 @@ class SyncEngine:
         owner = _lock_owner()
         self.db.sync_locks.acquire(account_id, gateway_id, "sync-usage", owner)
         started_at = utc_now()
+        failed_before = utc_now_precise()
         try:
             effective_retry_failed = (
                 self.settings.sync.retry_failed if retry_failed is None else retry_failed
@@ -177,7 +178,7 @@ class SyncEngine:
                 retry_failed=effective_retry_failed,
                 batch_size=batch_size,
                 limit=limit,
-                failed_before=started_at,
+                failed_before=failed_before,
             )
             first_batch = next(batches, None)
             if not first_batch:
@@ -330,8 +331,16 @@ class SyncEngine:
         state = self.db.sync_state.get(account_id, gateway_id, "sync")
         if not state or not state.get("last_seen_created_at"):
             return effective_filters
+        checkpoint = str(state["last_seen_created_at"])
+        normalized_checkpoint = _normalize_checkpoint_time(checkpoint)
+        if normalized_checkpoint is None:
+            raise ValueError(
+                "invalid incremental checkpoint "
+                f"for {account_id}/{gateway_id}: last_seen_created_at={checkpoint!r}; "
+                "run a non-incremental sync to repair it"
+            )
         start_date = _minus_minutes(
-            str(state["last_seen_created_at"]),
+            normalized_checkpoint,
             self.settings.sync.incremental_overlap_minutes,
         )
         return replace(effective_filters, start_date=start_date)
@@ -399,21 +408,49 @@ def _choose_latest_seen(
 ) -> tuple[str | None, str | None]:
     created_at = log.get("created_at")
     log_id = log.get("id") or log.get("log_id")
-    if not isinstance(created_at, str) or not created_at:
-        return latest_created_at, latest_log_id
-    if latest_created_at is None or created_at > latest_created_at:
-        return created_at, str(log_id) if log_id is not None else latest_log_id
-    if created_at == latest_created_at and log_id is not None:
+    candidate_time = _parse_checkpoint_time(created_at)
+    latest_time = _parse_checkpoint_time(latest_created_at)
+    if candidate_time is None:
+        if latest_time is None:
+            return None, None
+        return _format_checkpoint_time(latest_time), latest_log_id
+    if latest_time is None or candidate_time > latest_time:
+        return (
+            _format_checkpoint_time(candidate_time),
+            str(log_id) if log_id is not None else latest_log_id,
+        )
+    if candidate_time == latest_time and log_id is not None:
         latest_log_id = max(latest_log_id or "", str(log_id))
-    return latest_created_at, latest_log_id
+    return _format_checkpoint_time(latest_time), latest_log_id
+
+
+def _parse_checkpoint_time(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    cleaned = value.strip()
+    if cleaned.endswith("Z"):
+        cleaned = f"{cleaned[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(cleaned)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
+        return None
+
+
+def _format_checkpoint_time(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _normalize_checkpoint_time(value: str) -> str | None:
+    parsed = _parse_checkpoint_time(value)
+    return _format_checkpoint_time(parsed) if parsed is not None else None
 
 
 def _minus_minutes(value: str, minutes: int) -> str:
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return value
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    shifted = parsed.astimezone(timezone.utc) - timedelta(minutes=max(0, minutes))
-    return shifted.strftime("%Y-%m-%dT%H:%M:%SZ")
+    parsed = _parse_checkpoint_time(value)
+    if parsed is None:
+        raise ValueError(f"invalid checkpoint timestamp: {value!r}")
+    shifted = parsed - timedelta(minutes=max(0, minutes))
+    return _format_checkpoint_time(shifted)

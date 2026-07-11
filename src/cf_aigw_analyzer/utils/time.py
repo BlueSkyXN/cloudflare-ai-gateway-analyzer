@@ -19,6 +19,12 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def utc_now_precise() -> str:
+    """Return current UTC time with microseconds for local attempt ordering."""
+
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
 def parse_datetime_input(value: str | None) -> str | None:
     """Normalize common date inputs to the Cloudflare API UTC format.
 
