@@ -143,6 +143,80 @@ async def test_incremental_sync_rejects_limit(db: AnalyzerDatabase) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "filter_overrides",
+    [
+        pytest.param({"page": 2}, id="page"),
+        pytest.param({"model": "gpt-4o"}, id="model"),
+        pytest.param({"provider": "openai"}, id="provider"),
+        pytest.param({"model_type": "chat"}, id="model-type"),
+        pytest.param({"search": "needle"}, id="search"),
+        pytest.param({"cached": False}, id="cached-false"),
+        pytest.param({"success": False}, id="success-false"),
+        pytest.param({"feedback": 0}, id="feedback-zero"),
+        pytest.param({"min_cost": 0.0}, id="min-cost-zero"),
+        pytest.param({"max_cost": 1.0}, id="max-cost"),
+        pytest.param({"min_duration": 0.0}, id="min-duration-zero"),
+        pytest.param({"max_duration": 1.0}, id="max-duration"),
+        pytest.param({"min_tokens_in": 0}, id="min-tokens-in-zero"),
+        pytest.param({"max_tokens_in": 1}, id="max-tokens-in"),
+        pytest.param({"min_tokens_out": 0}, id="min-tokens-out-zero"),
+        pytest.param({"max_tokens_out": 1}, id="max-tokens-out"),
+        pytest.param({"min_total_tokens": 0}, id="min-total-tokens-zero"),
+        pytest.param({"max_total_tokens": 1}, id="max-total-tokens"),
+    ],
+)
+async def test_incremental_sync_rejects_result_narrowing_filters(
+    db: AnalyzerDatabase,
+    filter_overrides: dict[str, object],
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("filtered incremental sync must fail before calling upstream")
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        with pytest.raises(ValueError, match="cannot be combined with result filters"):
+            await engine.sync_logs(
+                "acct",
+                "gw",
+                LogFilters(per_page=7, meta_info=True, **filter_overrides),
+                incremental=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_incremental_sync_allows_page_size_and_meta_info(db: AnalyzerDatabase) -> None:
+    seen_queries: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_queries.append(dict(request.url.params))
+        return httpx.Response(
+            200, json={"success": True, "result_info": {"total_count": 0}, "result": []}
+        )
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        await engine.sync_logs(
+            "acct",
+            "gw",
+            LogFilters(page=1, per_page=7, meta_info=True),
+            incremental=True,
+        )
+
+    assert seen_queries == [
+        {
+            "page": "1",
+            "per_page": "7",
+            "order_by": "created_at",
+            "order_by_direction": "asc",
+            "meta_info": "true",
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_incremental_sync_rejects_unsafe_order(db: AnalyzerDatabase) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError("unsafe incremental ordering must fail before calling upstream")

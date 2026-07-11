@@ -339,7 +339,8 @@ class EventRepository:
         Missing rows are always processed before failed rows. A row that fails
         during the current run is excluded from the failed phase via
         ``failed_before`` so it is not retried twice in the same invocation.
-        ``rowid`` keyset pagination avoids OFFSET drift as statuses are updated.
+        ``created_at``/``log_id``/``rowid`` keyset pagination preserves newest-first
+        ordering without OFFSET drift as statuses are updated.
         """
 
         safe_batch_size = max(1, int(batch_size))
@@ -368,15 +369,28 @@ class EventRepository:
                 phases.append("failed")
 
         for phase in phases:
-            before_rowid = max_rowid + 1
+            before_created_at: str | None = None
+            before_log_id: str | None = None
+            before_rowid: int | None = None
             while remaining is None or remaining > 0:
                 clauses = [
                     "account_id = ?",
                     "gateway_id = ?",
                     "rowid <= ?",
-                    "rowid < ?",
                 ]
-                params: list[Any] = [account_id, gateway_id, max_rowid, before_rowid]
+                params: list[Any] = [account_id, gateway_id, max_rowid]
+                if before_rowid is not None:
+                    if before_created_at is None:
+                        clauses.append("created_at IS NULL AND (log_id, rowid) < (?, ?)")
+                        params.extend([before_log_id, before_rowid])
+                    else:
+                        clauses.append(
+                            """(
+                                created_at IS NULL
+                                OR (created_at, log_id, rowid) < (?, ?, ?)
+                            )"""
+                        )
+                        params.extend([before_created_at, before_log_id, before_rowid])
                 if phase == "missing":
                     clauses.append("usage_fetch_status IS NULL")
                 elif phase == "failed":
@@ -391,10 +405,10 @@ class EventRepository:
                 params.append(query_limit)
                 rows = self.conn.execute(
                     f"""
-                    SELECT rowid, log_id
+                    SELECT rowid, log_id, created_at
                     FROM log_events
                     WHERE {" AND ".join(clauses)}
-                    ORDER BY rowid DESC
+                    ORDER BY created_at DESC, log_id DESC, rowid DESC
                     LIMIT ?
                     """,
                     params,
@@ -403,7 +417,10 @@ class EventRepository:
                     break
 
                 yield [str(row["log_id"]) for row in rows]
-                before_rowid = int(rows[-1]["rowid"])
+                last_row = rows[-1]
+                before_created_at = last_row["created_at"]
+                before_log_id = str(last_row["log_id"])
+                before_rowid = int(last_row["rowid"])
                 if remaining is not None:
                     remaining -= len(rows)
             if remaining == 0:

@@ -309,6 +309,23 @@ class SyncEngine:
             filters.direction is not None and filters.direction.lower() != "asc"
         ):
             raise ValueError("incremental sync requires created_at ascending order")
+        safe_query_fields = {
+            "page",
+            "per_page",
+            "order_by",
+            "order_by_direction",
+            "start_date",
+            "end_date",
+            "meta_info",
+        }
+        result_filters = sorted(set(filters.to_query()) - safe_query_fields)
+        if filters.page != 1:
+            result_filters.insert(0, "page")
+        if result_filters:
+            raise ValueError(
+                "incremental sync cannot be combined with result filters: "
+                + ", ".join(result_filters)
+            )
         effective_filters = replace(filters, order_by="created_at", direction="asc")
         state = self.db.sync_state.get(account_id, gateway_id, "sync")
         if not state or not state.get("last_seen_created_at"):

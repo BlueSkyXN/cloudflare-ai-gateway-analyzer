@@ -208,6 +208,63 @@ def test_usage_target_batches_are_bounded_and_prioritize_missing(
     assert set(flattened[2:]) == {"failed-1", "failed-2"}
 
 
+def test_usage_target_batches_limit_keeps_newest_logs_first(
+    db: AnalyzerDatabase,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log("newest", created_at="2026-05-22T03:00:00Z"),
+            _sample_log("middle", created_at="2026-05-22T02:00:00Z"),
+            _sample_log("oldest", created_at="2026-05-22T01:00:00Z"),
+        ],
+    )
+
+    batches = list(
+        db.logs.iter_usage_target_batches(
+            "acct",
+            "gw",
+            batch_size=1,
+            limit=2,
+        )
+    )
+
+    assert batches == [["newest"], ["middle"]]
+
+
+def test_usage_target_batches_handle_equal_and_null_created_at(
+    db: AnalyzerDatabase,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log("same-b", created_at="2026-05-22T01:00:00Z"),
+            _sample_log("null-b", created_at=None),
+            _sample_log("same-c", created_at="2026-05-22T01:00:00Z"),
+            _sample_log("null-a", created_at=None),
+            _sample_log("same-a", created_at="2026-05-22T01:00:00Z"),
+        ],
+    )
+
+    batches = list(
+        db.logs.iter_usage_target_batches(
+            "acct",
+            "gw",
+            batch_size=1,
+        )
+    )
+
+    assert batches == [
+        ["same-c"],
+        ["same-b"],
+        ["same-a"],
+        ["null-b"],
+        ["null-a"],
+    ]
+
+
 # ---- query --------------------------------------------------------------------
 
 
