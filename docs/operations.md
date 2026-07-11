@@ -63,8 +63,9 @@ by `sync.incremental_overlap_minutes`, and lets the SQLite primary key absorb
 the intentional overlap. Incremental mode forces `created_at ASC` so the
 checkpoint only advances through a fully consumed result set. Do not combine it
 with `--limit`, manual `--start-date` / `--end-date`, or an incompatible
-`--order-by` / `--direction`; the command rejects those combinations instead of
-risking skipped rows.
+`--order-by` / `--direction`. Result-narrowing filters such as `--model`,
+`--provider`, `--success`, `--cached`, or token/cost/duration bounds are also
+rejected because the checkpoint is shared by the whole account/gateway scope.
 
 ## Usage sync
 
@@ -81,6 +82,7 @@ Recovery behaviour:
 - Cloudflare 404 (`response body unavailable`) is recorded as `no_usage`, not `failed`.
 - `--limit` must be positive when provided; `--usage-workers` is bounded to `1..64`.
 - Candidate IDs are loaded in bounded `sync.usage_batch_size` batches rather than all at once.
+- Missing and failed phases each retain newest-`created_at`-first ordering when a limit is used.
 
 ## Combined sync
 

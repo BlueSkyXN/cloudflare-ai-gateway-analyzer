@@ -8,8 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Fixed
 
-- Made incremental sync force `created_at ASC` and reject `--limit`, explicit date windows, or incompatible ordering so a truncated page cannot silently advance the checkpoint past unseen logs.
-- Made usage backfill process bounded `usage_batch_size` batches, prioritize never-fetched rows, honor `missing_only`, and use `sync.retry_failed` as the default retry policy.
+- Made incremental sync force `created_at ASC` and reject `--limit`, explicit date windows, incompatible ordering, or result-narrowing filters so an incomplete result set cannot silently advance the shared checkpoint past unseen logs.
+- Made usage backfill process bounded `usage_batch_size` batches, prioritize never-fetched rows, keep newest logs first within each status phase, honor `missing_only`, and use `sync.retry_failed` as the default retry policy.
 - Recomputed TPS and visible-output metrics when refreshed metadata changes timing fields after usage has already been parsed.
 - Switched latency percentiles to nearest-rank semantics and compute P95 for every model in one window query instead of the previous top-25 N+1 query loop.
 - Excluded invalid or missing timestamps from time-series buckets instead of emitting a null bucket that violates the API schema.

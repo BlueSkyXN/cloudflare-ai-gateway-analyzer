@@ -142,7 +142,7 @@ Per-scope checkpoint for explicit incremental sync runs.
 | `last_seen_log_id`     | TEXT | Tie-break marker for the highest timestamp. |
 | `updated_at`           | TEXT | Last checkpoint write time.                 |
 
-`sync --incremental` uses `last_seen_created_at` minus `sync.incremental_overlap_minutes` as the next `start_date`, forces `created_at ASC`, and requires an uncapped complete result set. The overlap is intentional; `(account_id, gateway_id, log_id)` primary keys absorb duplicates.
+`sync --incremental` uses `last_seen_created_at` minus `sync.incremental_overlap_minutes` as the next `start_date`, forces `created_at ASC`, and requires an uncapped, unfiltered complete result set starting at page 1. The overlap is intentional; `(account_id, gateway_id, log_id)` primary keys absorb duplicates.
 
 ### `sync_locks`
 
