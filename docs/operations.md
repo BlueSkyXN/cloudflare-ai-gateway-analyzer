@@ -55,13 +55,16 @@ For repeated agent/cron runs after an initial backfill, prefer explicit
 incremental mode:
 
 ```bash
-python cli.py sync -a <ACCOUNT_ID> --gateway-name <GW> --incremental --limit 500
+python cli.py sync -a <ACCOUNT_ID> --gateway-name <GW> --incremental
 ```
 
 `--incremental` reads `sync_state`, rewinds the previous `last_seen_created_at`
 by `sync.incremental_overlap_minutes`, and lets the SQLite primary key absorb
-the intentional overlap. Do not combine it with manual `--start-date` /
-`--end-date` filters.
+the intentional overlap. Incremental mode forces `created_at ASC` so the
+checkpoint only advances through a fully consumed result set. Do not combine it
+with `--limit`, manual `--start-date` / `--end-date`, or an incompatible
+`--order-by` / `--direction`; the command rejects those combinations instead of
+risking skipped rows.
 
 ## Usage sync
 
@@ -71,11 +74,13 @@ python cli.py sync-usage -a <ACCOUNT_ID> --gateway-name <GW> --missing-only --us
 
 Recovery behaviour:
 
-- Missing rows are fetched.
-- `failed` rows are retried by default (`--no-retry-failed` to skip).
-- `no_usage` rows are not refetched in `--missing-only` mode.
+- `--missing-only` fetches only rows whose usage has never been attempted.
+- Without `--missing-only`, never-fetched rows are processed before failed rows.
+- `failed` rows follow `sync.retry_failed` by default; `--no-retry-failed` disables retries for a run.
+- `no_usage` rows are not refetched unless `--refresh` is used.
 - Cloudflare 404 (`response body unavailable`) is recorded as `no_usage`, not `failed`.
 - `--limit` must be positive when provided; `--usage-workers` is bounded to `1..64`.
+- Candidate IDs are loaded in bounded `sync.usage_batch_size` batches rather than all at once.
 
 ## Combined sync
 

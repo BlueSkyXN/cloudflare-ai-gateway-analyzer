@@ -18,7 +18,7 @@ The analyzer is intended to live on the operator's machine (or a private contain
 
 ## Body content
 
-`cf_aigw_analyzer.core.sanitizer.sanitize_log_metadata` recursively strips any dict key matching a deny-list (`request`, `response`, `messages`, `prompt`, `input`, `text`, etc., case-insensitive) before persistence. The sanitized Cloudflare log JSON is stored in `log_raw.raw_json` only for raw inspection. The `/response` endpoint is contacted solely to parse usage; the body itself is never written to disk.
+`cf_aigw_analyzer.core.sanitizer.sanitize_log_metadata` is fail-closed. It keeps only a documented set of analytics-safe scalar fields plus numeric timing fields; unknown objects, body aliases, arbitrary payloads, paths, and stringified metadata are discarded before persistence. This protects against new Cloudflare field names such as camelCase body aliases being retained by default. The sanitized snapshot is stored in `log_raw.raw_json` only for local inspection. The `/response` endpoint is contacted solely to parse usage; its body is never written to disk.
 
 ## Sharing exports
 
@@ -50,7 +50,7 @@ The `legacy/v0.2/` directory contains the old single-file Streamlit implementati
 | Threat                                     | Mitigation                                                              |
 | ------------------------------------------ | ----------------------------------------------------------------------- |
 | Browser cross-site request to dashboard    | Loopback-only bind + optional bearer token.                             |
-| Body content leak via SQLite               | Recursive sanitizer + `log_raw` separation; `/response` body not stored. |
+| Body content leak via SQLite               | Fail-closed log-field allow-list + `log_raw` separation; `/response` body not stored. |
 | Credential exposure in process list        | No `--api-token` CLI flag; env vars only.                               |
 | Credential exposure in config dump         | `redact_settings` enforces `"***"`.                                      |
 | Replay of stale sync state                 | `sync_runs` records every invocation; `sync_state` only advances checkpoints and `sync_locks` prevent duplicate concurrent writers. |

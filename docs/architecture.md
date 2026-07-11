@@ -45,9 +45,9 @@ The Python package mirrors the runtime layers exactly:
 ## Data flow
 
 1. `accounts` + `gateways` discover Cloudflare resources and cache gateway metadata.
-2. `sync` paginates `GET /accounts/.../logs`, sanitizes each row, and writes `log_events` plus `log_raw`.
+2. `sync` paginates `GET /accounts/.../logs`, projects each row onto a fail-closed safe-field allow-list, and writes `log_events` plus `log_raw`.
 3. `compute_log_metrics` remains a pure function; derived timing and input/output TPS fields are stored directly on `log_events`.
-4. `sync-usage` lists rows whose `usage_fetch_status` needs work, fetches `/response` concurrently, parses provider usage shapes, and updates the same `log_events` row.
+4. `sync-usage` keyset-paginates missing targets before retryable failed targets, materializes at most `usage_batch_size` coroutines, fetches `/response` concurrently, parses provider usage shapes, and updates the same `log_events` row.
 5. `query`, `status`, and the analytics layer read from `log_events` instead of joining separate usage/metrics tables.
 6. The dashboard calls `GET /api/v1/analytics`; the response includes summary, time series, provider/model breakdowns, events, and filter options.
 
@@ -55,6 +55,8 @@ The Python package mirrors the runtime layers exactly:
 
 - CLI commands and the FastAPI app share the same `SyncEngine`. The CLI uses `asyncio.run`, the FastAPI app schedules via `BackgroundTasks` and tracks status with an in-process `JobRegistry`.
 - `HttpClient` uses `tenacity` for exponential backoff with jitter; 429 / 5xx are retried, 4xx (except 404) are returned as-is.
+- Incremental metadata sync forces `created_at ASC` and rejects explicit limits or date windows; a truncated page is never allowed to advance the checkpoint.
+- Analytics executes its multi-section payload in one SQLite read snapshot. The FastAPI route is synchronous so SQLite aggregation runs outside the async event loop.
 
 ## Process model
 

@@ -56,7 +56,7 @@ Response sections:
 
 | Section          | Description                                                                                   |
 | ---------------- | --------------------------------------------------------------------------------------------- |
-| `summary`        | Request count, success rate, model/provider count, token totals, cache ratio, latency percentiles, average input/output TPS, usage status counts. |
+| `summary`        | Request count, success rate, model/provider count, token totals, cache ratio, nearest-rank latency percentiles, average estimated-input/output TPS, usage status counts. |
 | `timeseries`     | request/token/latency/input and output TPS series aggregated by `timeseries_bucket_hours` (1/4/8/12/24h). |
 | `by_provider`    | Provider-level breakdown.                                                                      |
 | `by_model`       | Model-level breakdown with provider list and p95 total latency.                                |
@@ -97,9 +97,14 @@ Sync trigger numeric constraints are part of the public contract:
 - `/sync/usage`: `limit >= 1`, `workers` in `1..64`.
 - Omitted limits mean "no explicit cap"; `0` and negative values are rejected with `422`.
 
-`/sync/logs` also accepts `incremental: true`. In that mode the server reads `sync_state` for the same `(account_id, gateway_id, "sync")` scope, rewinds `last_seen_created_at` by `sync.incremental_overlap_minutes`, and sends that as the Cloudflare `start_date`. Do not combine `incremental=true` with explicit `start_date` / `end_date` filters; the request is treated as a job failure.
+`/sync/logs` also accepts `incremental: true`. In that mode the server reads `sync_state` for the same `(account_id, gateway_id, "sync")` scope, rewinds `last_seen_created_at` by `sync.incremental_overlap_minutes`, and sends that as the Cloudflare `start_date` while forcing `created_at ASC`. Do not combine `incremental=true` with `limit`, explicit `start_date` / `end_date`, or incompatible ordering; the request is treated as a job failure so the checkpoint cannot skip an unconsumed result tail.
 
 When `/sync/logs` is called with `with_usage=true`, clients should pass `usage_limit` when they intend the follow-up usage backfill to be capped too. The bundled React panel uses the same positive Limit value for both metadata sync and usage sync.
+
+Usage target selection is bounded by `sync.usage_batch_size`. `missing_only=true`
+selects only rows with no previous usage attempt. Otherwise missing rows are
+processed before failed rows, and failed-row retries inherit
+`sync.retry_failed` unless the request sets `no_retry_failed=true`.
 
 ### Config
 

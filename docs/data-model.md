@@ -73,7 +73,7 @@ This table stores the commonly queried facts and dimensions directly on the log 
 | `latency_ms`             | REAL    | Time to first byte / latency from timings.                              |
 | `total_ms`               | REAL    | Total request time from timings or duration fallback.                   |
 | `generation_ms`          | REAL    | `total_ms - latency_ms`, clipped to 0.                                 |
-| `input_tps`              | REAL    | `input_tokens / (latency_ms / 1000)`.                                  |
+| `input_tps`              | REAL    | Estimated input-token rate: `input_tokens / (latency_ms / 1000)`; not a direct provider prefill measurement. |
 | `output_tps`             | REAL    | `output_tokens / (generation_ms / 1000)`.                              |
 | `ms_per_output_token`    | REAL    | `generation_ms / output_tokens`.                                       |
 | `visible_output_tokens`  | INTEGER | `output_tokens - reasoning_tokens`, floored at 0.                      |
@@ -142,7 +142,7 @@ Per-scope checkpoint for explicit incremental sync runs.
 | `last_seen_log_id`     | TEXT | Tie-break marker for the highest timestamp. |
 | `updated_at`           | TEXT | Last checkpoint write time.                 |
 
-`sync --incremental` uses `last_seen_created_at` minus `sync.incremental_overlap_minutes` as the next `start_date`. The overlap is intentional; `(account_id, gateway_id, log_id)` primary keys absorb duplicates.
+`sync --incremental` uses `last_seen_created_at` minus `sync.incremental_overlap_minutes` as the next `start_date`, forces `created_at ASC`, and requires an uncapped complete result set. The overlap is intentional; `(account_id, gateway_id, log_id)` primary keys absorb duplicates.
 
 ### `sync_locks`
 
@@ -172,7 +172,7 @@ PRAGMA mmap_size = 268435456; -- 256 MB memory mapping for read-heavy workloads
 
 ## Migration policy
 
-- The current schema is v5.
+- The current schema is v7.
 - v5 drops old analyzer-owned tables (`logs`, `log_usage`, `log_metrics`, `logs_raw`) and recreates the simplified schema.
 - No old SQLite data is migrated. Re-sync from Cloudflare after the reset.
 - Future schema changes should add a migration handler in `migrations.MIGRATIONS`, bump `SCHEMA_VERSION`, and keep repository tests aligned.

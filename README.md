@@ -12,7 +12,7 @@
 
 1. **CLI / 后端 / 看板三分离**：`cli.py` 子命令式 CLI，`cf-aigw-analyzer serve` 启动 FastAPI 控制面，前端通过 `/api/v1/*` 调用，单端口托管。
 2. **单一日志事实表**：常用统计字段直接落到 `log_events`，metadata sync 插入同一行，usage sync 回填同一行，避免 `logs + log_usage + log_metrics` 的 1:1 多表 join。
-3. **不存请求/响应正文**：`log_raw.raw_json` 只保存经 `sanitize_log_metadata` 清洗后的 Cloudflare log JSON；`/response` 只用于解析 usage，响应正文不落盘。
+3. **不存请求/响应正文**：`log_raw.raw_json` 只保存 `sanitize_log_metadata` 白名单允许的分析字段；未知 payload、路径、字符串化 metadata 和正文别名默认丢弃；`/response` 只用于解析 usage，响应正文不落盘。
 4. **统一 analytics API**：`GET /api/v1/analytics` 一次返回 `summary`、`timeseries`、`by_provider`、`by_model`、`events` 和 `filter_options`，前端各页面共享同一份数据。
 5. **`provider` 就是渠道**：筛选和分组字段统一为 `provider`，不新增 `channel` 字段或 API alias。
 6. **SQL 下推聚合**：请求数、tokens、耗时、TPS、分位数和按渠道/模型拆分都在 SQLite 内聚合，避免把整表加载到 Python 内存。
@@ -109,7 +109,7 @@ cd web && npm run lint && npm run build
 
 - SQLite schema v7：`log_events` 宽表 + `log_raw` 辅助表；旧 SQLite 数据不迁移，升级时 destructive reset 后重新 sync。
 - OpenAPI 12 个路径，analytics 主入口为 `GET /api/v1/analytics`。
-- 102 个单元 + 集成测试覆盖 data / core / analytics / cli / control。
+- 114 个单元 + 集成测试覆盖 data / core / analytics / cli / control。
 - 前端保留总览、模型、延迟、事件、同步、设置多页；analytics 页面共用统一接口。
 
 `legacy/v0.2/` 保留了上一版完整源码作为参考，不再维护。
