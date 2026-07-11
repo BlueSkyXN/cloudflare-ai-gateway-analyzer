@@ -20,6 +20,12 @@ The analyzer is intended to live on the operator's machine (or a private contain
 
 `cf_aigw_analyzer.core.sanitizer.sanitize_log_metadata` is fail-closed. It keeps only a documented set of analytics-safe scalar fields plus numeric timing fields; unknown objects, body aliases, arbitrary payloads, paths, and stringified metadata are discarded before persistence. This protects against new Cloudflare field names such as camelCase body aliases being retained by default. The sanitized snapshot is stored in `log_raw.raw_json` only for local inspection. The `/response` endpoint is contacted solely to parse usage; its body is never written to disk.
 
+Gateway configuration uses a separate recursive sanitizer before writing
+`gateways.raw_json`. It preserves policy shape but redacts recognized credentials,
+including camelCase and acronym forms such as `secretKey`, `privateKey`, `IDToken`,
+`APIToken`, and `AuthorizationHeader`. These rules apply to future writes and
+re-synced gateways; existing SQLite snapshots are not rewritten automatically.
+
 ## Sharing exports
 
 `cf-aigw-analyzer query` excludes `raw_json`, `account_id`, and `gateway_id` from JSON/CSV/table output by default. Use `--include-raw-json` / `--include-scope` only for local inspection. The dashboard's analytics payload returns recent event rows from `log_events` and does not include raw JSON.

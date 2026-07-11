@@ -67,6 +67,12 @@ with `--limit`, manual `--start-date` / `--end-date`, or an incompatible
 `--provider`, `--success`, `--cached`, or token/cost/duration bounds are also
 rejected because the checkpoint is shared by the whole account/gateway scope.
 
+If an older database contains an invalid checkpoint, incremental sync fails before
+contacting Cloudflare with an `invalid incremental checkpoint` error. Repair it by
+running the uncapped non-incremental sync shown above. A valid `created_at` from that
+run replaces the bad marker; invalid timestamps in individual log rows are stored as
+metadata but do not advance the checkpoint.
+
 ## Usage sync
 
 ```bash
@@ -83,6 +89,7 @@ Recovery behaviour:
 - `--limit` must be positive when provided; `--usage-workers` is bounded to `1..64`.
 - Candidate IDs are loaded in bounded `sync.usage_batch_size` batches rather than all at once.
 - Missing and failed phases each retain newest-`created_at`-first ordering when a limit is used.
+- A failure is attempted at most once per invocation. A later invocation can retry it even when both runs start within the same wall-clock second.
 
 ## Combined sync
 

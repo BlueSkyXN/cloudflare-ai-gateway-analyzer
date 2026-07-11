@@ -41,7 +41,7 @@ Cached Cloudflare gateway metadata.
 | `gateway_id`    | TEXT    | Part of composite primary key.                   |
 | `name`          | TEXT    | Gateway display name; falls back to `gateway_id`. |
 | `collect_logs`  | INTEGER | 0/1; null when Cloudflare did not return it.     |
-| `raw_json`      | TEXT    | Sanitized gateway payload.                       |
+| `raw_json`      | TEXT    | Sanitized gateway payload with recognized secret-bearing fields redacted. |
 | `fetched_at`    | TEXT    | ISO 8601 UTC.                                    |
 
 ### `log_events`
@@ -82,7 +82,7 @@ This table stores the commonly queried facts and dimensions directly on the log 
 | `usage_fetch_status`     | TEXT    | `parsed` / `no_usage` / `failed` / null for missing.                    |
 | `usage_http_status_code` | INTEGER | Last Cloudflare `/response` status.                                    |
 | `usage_error_message`    | TEXT    | Optional human-readable error from the fetch attempt.                   |
-| `usage_fetched_at`       | TEXT    | When `/response` was fetched or attempted.                              |
+| `usage_fetched_at`       | TEXT    | When `/response` was fetched or attempted; new attempts include microseconds for retry ordering. |
 | `synced_at`              | TEXT    | When metadata was last synced.                                         |
 | `updated_at`             | TEXT    | When the row was last updated.                                         |
 
@@ -138,11 +138,13 @@ Per-scope checkpoint for explicit incremental sync runs.
 | `gateway_id`           | TEXT | Part of composite primary key.              |
 | `mode`                 | TEXT | `sync` or `sync-usage`.                     |
 | `last_success_at`      | TEXT | Last successful run time.                   |
-| `last_seen_created_at` | TEXT | Highest Cloudflare log `created_at` seen.   |
+| `last_seen_created_at` | TEXT | Highest valid Cloudflare log `created_at`; new markers are normalized to UTC. |
 | `last_seen_log_id`     | TEXT | Tie-break marker for the highest timestamp. |
 | `updated_at`           | TEXT | Last checkpoint write time.                 |
 
 `sync --incremental` uses `last_seen_created_at` minus `sync.incremental_overlap_minutes` as the next `start_date`, forces `created_at ASC`, and requires an uncapped, unfiltered complete result set starting at page 1. The overlap is intentional; `(account_id, gateway_id, log_id)` primary keys absorb duplicates.
+
+Only parseable timestamps participate in checkpoint advancement. An invalid historical checkpoint fails before any Cloudflare request instead of being reused as `start_date`. Run a non-incremental sync to replace it; the repair requires that the result contain at least one valid `created_at` value.
 
 ### `sync_locks`
 
