@@ -30,7 +30,7 @@ sync:
   log_throttle_ms: 200
   usage_workers: 8
   usage_batch_size: 50  # maximum usage targets materialized at once
-  retry_failed: true    # default unless a run explicitly disables retries
+  retry_failed: true    # default unless a run overrides retry behavior
   incremental_overlap_minutes: 10
 
 # FastAPI control plane and panel hosting.

@@ -104,8 +104,10 @@ When `/sync/logs` is called with `with_usage=true`, clients should pass `usage_l
 Usage target selection is bounded by `sync.usage_batch_size`. `missing_only=true`
 selects only rows with no previous usage attempt. Otherwise missing rows are
 processed before failed rows, and failed-row retries inherit
-`sync.retry_failed` unless the request sets `no_retry_failed=true`. Within each
-status phase, targets retain newest-`created_at`-first ordering even across batches.
+`sync.retry_failed` unless the request sets `retry_failed` to `true` or `false`.
+The legacy `no_retry_failed=true` field remains accepted as a force-false alias;
+combining it with `retry_failed` is rejected with `422`. Within each status phase,
+targets retain newest-`created_at`-first ordering even across batches.
 
 ### Config
 

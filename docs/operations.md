@@ -83,7 +83,8 @@ Recovery behaviour:
 
 - `--missing-only` fetches only rows whose usage has never been attempted.
 - Without `--missing-only`, never-fetched rows are processed before failed rows.
-- `failed` rows follow `sync.retry_failed` by default; `--no-retry-failed` disables retries for a run.
+- `failed` rows follow `sync.retry_failed` by default; `--retry-failed` and
+  `--no-retry-failed` override the policy for one run.
 - `no_usage` rows are not refetched unless `--refresh` is used.
 - Cloudflare 404 (`response body unavailable`) is recorded as `no_usage`, not `failed`.
 - `--limit` must be positive when provided; `--usage-workers` is bounded to `1..64`.

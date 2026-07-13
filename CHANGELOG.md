@@ -9,9 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Fixed
 
 - Made incremental sync force `created_at ASC` and reject `--limit`, explicit date windows, incompatible ordering, or result-narrowing filters so an incomplete result set cannot silently advance the shared checkpoint past unseen logs.
-- Made usage backfill process bounded `usage_batch_size` batches, prioritize never-fetched rows, keep newest logs first within each status phase, honor `missing_only`, and use `sync.retry_failed` as the default retry policy.
+- Made usage backfill process bounded `usage_batch_size` batches, prioritize never-fetched rows, keep newest logs first within each status phase, honor `missing_only`, use `sync.retry_failed` as the default retry policy, and support explicit per-run enable/disable overrides.
 - Made failed-usage retry cutoffs use microsecond-precision attempt timestamps so a failure from a completed run can be retried even when the next run starts in the same second, without retrying a failure twice in one run.
-- Made incremental checkpoints ignore invalid log `created_at` values, compare parsed instants, write new markers in UTC, and reject an invalid historical checkpoint before sending it upstream.
+- Made incremental checkpoints advance only from successfully persisted rows, ignore invalid log `created_at` values, compare parsed instants, write new markers in UTC, and reject an invalid historical checkpoint before sending it upstream.
 - Recomputed TPS and visible-output metrics when refreshed metadata changes timing fields after usage has already been parsed.
 - Switched latency percentiles to nearest-rank semantics and compute P95 for every model in one window query instead of the previous top-25 N+1 query loop.
 - Excluded invalid or missing timestamps from time-series buckets instead of emitting a null bucket that violates the API schema.

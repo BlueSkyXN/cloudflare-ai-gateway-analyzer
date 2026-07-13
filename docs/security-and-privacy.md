@@ -23,7 +23,8 @@ The analyzer is intended to live on the operator's machine (or a private contain
 Gateway configuration uses a separate recursive sanitizer before writing
 `gateways.raw_json`. It preserves policy shape but redacts recognized credentials,
 including camelCase and acronym forms such as `secretKey`, `privateKey`, `IDToken`,
-`APIToken`, and `AuthorizationHeader`. These rules apply to future writes and
+`APIToken`, `AuthorizationHeader`, `secretAccessKey`, and `AWSSecretAccessKey`.
+These rules apply to future writes and
 re-synced gateways; existing SQLite snapshots are not rewritten automatically.
 
 ## Sharing exports
