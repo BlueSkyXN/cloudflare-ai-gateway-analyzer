@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from math import ceil
 from typing import Any
 
 from cf_aigw_analyzer.analytics.queries import AnalyticsFilters, build_where, list_gateway_scopes
@@ -15,14 +16,26 @@ def build_analytics(
     limit: int = 500,
 ) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 5_000))
-    return {
-        "summary": build_summary(conn, filters),
-        "timeseries": build_timeseries(conn, filters),
-        "by_provider": build_provider_stats(conn, filters),
-        "by_model": build_model_stats(conn, filters),
-        "events": build_recent_events(conn, filters, limit=safe_limit),
-        "filter_options": build_filter_options(conn, filters),
-    }
+    owns_snapshot = not conn.in_transaction
+    if owns_snapshot:
+        conn.execute("BEGIN")
+    try:
+        payload = {
+            "summary": build_summary(conn, filters),
+            "timeseries": build_timeseries(conn, filters),
+            "by_provider": build_provider_stats(conn, filters),
+            "by_model": build_model_stats(conn, filters),
+            "events": build_recent_events(conn, filters, limit=safe_limit),
+            "filter_options": build_filter_options(conn, filters),
+        }
+    except BaseException:
+        if owns_snapshot:
+            conn.execute("ROLLBACK")
+        raise
+    else:
+        if owns_snapshot:
+            conn.execute("COMMIT")
+        return payload
 
 
 def build_summary(conn: sqlite3.Connection, filters: AnalyticsFilters) -> dict[str, Any]:
@@ -128,6 +141,7 @@ def build_timeseries(conn: sqlite3.Connection, filters: AnalyticsFilters) -> lis
             SELECT e.*, {bucket_expr} AS bucket
             FROM log_events e
             {where}
+            {"AND" if where else "WHERE"} julianday(e.created_at) IS NOT NULL
         ) e
         GROUP BY e.bucket
         ORDER BY hour ASC
@@ -176,8 +190,15 @@ def build_provider_stats(
 
 def build_model_stats(conn: sqlite3.Connection, filters: AnalyticsFilters) -> list[dict[str, Any]]:
     rows = _breakdown(conn, filters, key_expr="COALESCE(e.model, '(unknown)')", key_name="model")
-    for row in rows[:25]:
-        row["p95_total_ms"] = _p95_for_value(conn, filters, "e.model", row["model"])
+    p95_by_model = _group_nearest_rank_percentile(
+        conn,
+        filters,
+        key_expr="COALESCE(e.model, '(unknown)')",
+        column="e.total_ms",
+        percentile=95,
+    )
+    for row in rows:
+        row["p95_total_ms"] = p95_by_model.get(str(row["model"]))
     return rows
 
 
@@ -354,17 +375,38 @@ def build_insights(conn: sqlite3.Connection, filters: AnalyticsFilters) -> list[
     return []
 
 
-def _p95_for_value(
-    conn: sqlite3.Connection, filters: AnalyticsFilters, column: str, value: str
-) -> float | None:
+def _group_nearest_rank_percentile(
+    conn: sqlite3.Connection,
+    filters: AnalyticsFilters,
+    *,
+    key_expr: str,
+    column: str,
+    percentile: int,
+) -> dict[str, float]:
     where, params = build_where(filters)
-    if value == "(unknown)":
-        clause = f"{column} IS NULL"
-    else:
-        clause = f"{column} = ?"
-        params.append(value)
-    base = f"FROM log_events e {where} {'AND' if where else 'WHERE'} {clause}"
-    return _percentiles(conn, base, params, "e.total_ms", (0.95,))[0]
+    valid_where = f"{where} {'AND' if where else 'WHERE'} {column} IS NOT NULL"
+    rows = conn.execute(
+        f"""
+        WITH filtered AS (
+            SELECT {key_expr} AS name, {column} AS value
+            FROM log_events e
+            {valid_where}
+        ),
+        ranked AS (
+            SELECT
+                name,
+                value,
+                ROW_NUMBER() OVER (PARTITION BY name ORDER BY value ASC) AS rank_number,
+                COUNT(*) OVER (PARTITION BY name) AS sample_count
+            FROM filtered
+        )
+        SELECT name, value
+        FROM ranked
+        WHERE rank_number = CAST((sample_count * ? + 99) / 100 AS INTEGER)
+        """,
+        [*params, max(1, min(percentile, 100))],
+    ).fetchall()
+    return {str(row["name"]): float(row["value"]) for row in rows}
 
 
 def _percentiles(
@@ -381,7 +423,7 @@ def _percentiles(
         return tuple(None for _ in quantiles)
     output: list[float | None] = []
     for quantile in quantiles:
-        index = max(0, min(total - 1, int((total - 1) * quantile)))
+        index = max(0, min(total - 1, ceil(total * quantile) - 1))
         row = conn.execute(
             f"SELECT {column} AS value {filter_sql} ORDER BY {column} ASC LIMIT 1 OFFSET ?",
             [*params, index],

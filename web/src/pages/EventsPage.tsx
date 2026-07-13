@@ -56,7 +56,7 @@ export function EventsPage() {
               <th>总耗时</th>
               <th>首字节等待</th>
               <th>输出时间</th>
-              <th>输入 TPS</th>
+              <th>估算输入 TPS</th>
               <th>输出 TPS</th>
               <th>usage</th>
             </tr>

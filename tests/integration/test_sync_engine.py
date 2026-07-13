@@ -14,7 +14,9 @@ from cf_aigw_analyzer.core.cloudflare import CloudflareClient, LogFilters
 from cf_aigw_analyzer.core.http_client import HttpClient
 from cf_aigw_analyzer.core.sync_engine import SyncEngine
 from cf_aigw_analyzer.data.db import AnalyzerDatabase
+from cf_aigw_analyzer.data.models import UsageFields
 from cf_aigw_analyzer.data.repository import SyncLockBusy
+from cf_aigw_analyzer.models.enums import FetchStatus
 
 
 @pytest.fixture
@@ -94,10 +96,10 @@ async def test_incremental_sync_uses_checkpoint_overlap(db: AnalyzerDatabase) ->
         last_seen_created_at="2026-05-22T10:00:00Z",
         last_seen_log_id="log-old",
     )
-    seen_start_dates: list[str | None] = []
+    seen_queries: list[dict[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen_start_dates.append(request.url.params.get("start_date"))
+        seen_queries.append(dict(request.url.params))
         return httpx.Response(
             200, json={"success": True, "result_info": {"total_count": 0}, "result": []}
         )
@@ -107,11 +109,255 @@ async def test_incremental_sync_uses_checkpoint_overlap(db: AnalyzerDatabase) ->
         engine = SyncEngine(settings, db, client=client)
         await engine.sync_logs("acct", "gw", LogFilters(per_page=2), incremental=True)
 
-    assert seen_start_dates == ["2026-05-22T09:50:00Z"]
+    assert seen_queries == [
+        {
+            "page": "1",
+            "per_page": "2",
+            "order_by": "created_at",
+            "order_by_direction": "asc",
+            "start_date": "2026-05-22T09:50:00Z",
+        }
+    ]
     runs = db.sync_runs.list_recent("acct", "gw")
     params = json.loads(runs[0]["params_json"])
     assert params["incremental"] is True
     assert params["start_date"] == "2026-05-22T09:50:00Z"
+
+
+@pytest.mark.asyncio
+async def test_sync_logs_checkpoint_ignores_invalid_created_at_and_normalizes_utc(
+    db: AnalyzerDatabase,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "result_info": {"total_count": 2},
+                "result": [
+                    {"id": "valid", "created_at": "2026-07-01T08:00:00+08:00"},
+                    {"id": "invalid", "created_at": "unknown"},
+                ],
+            },
+        )
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        result = await engine.sync_logs("acct", "gw", LogFilters(per_page=2))
+
+    assert result.logs_count == 2
+    state = db.sync_state.get("acct", "gw", "sync")
+    assert state is not None
+    assert state["last_seen_created_at"] == "2026-07-01T00:00:00Z"
+    assert state["last_seen_log_id"] == "valid"
+
+
+@pytest.mark.asyncio
+async def test_sync_logs_checkpoint_only_uses_persisted_rows(db: AnalyzerDatabase) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "result_info": {"total_count": 6},
+                "result": [
+                    {"id": "persisted-a", "created_at": "2026-07-01T00:00:00Z"},
+                    {
+                        "id": None,
+                        "log_id": "persisted-z",
+                        "created_at": "2026-07-01T00:00:00Z",
+                    },
+                    {
+                        "id": "",
+                        "log_id": "persisted-y",
+                        "created_at": "2026-07-01T00:00:00Z",
+                    },
+                    {"created_at": "2099-01-01T00:00:00Z"},
+                    {"id": None, "created_at": "2099-01-02T00:00:00Z"},
+                    {"id": "", "created_at": "2099-01-03T00:00:00Z"},
+                ],
+            },
+        )
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        result = await engine.sync_logs("acct", "gw", LogFilters(per_page=10))
+
+    assert result.logs_count == 3
+    stored = db.conn.execute("SELECT log_id FROM log_events ORDER BY log_id").fetchall()
+    assert [row["log_id"] for row in stored] == [
+        "persisted-a",
+        "persisted-y",
+        "persisted-z",
+    ]
+    state = db.sync_state.get("acct", "gw", "sync")
+    assert state is not None
+    assert state["last_seen_created_at"] == "2026-07-01T00:00:00Z"
+    assert state["last_seen_log_id"] == "persisted-z"
+    runs = db.sync_runs.list_recent("acct", "gw")
+    assert runs[0]["logs_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_invalid_incremental_checkpoint_fails_before_upstream_and_full_sync_repairs_it(
+    db: AnalyzerDatabase,
+) -> None:
+    db.conn.execute(
+        """
+        INSERT INTO sync_state (
+            account_id, gateway_id, mode, last_success_at,
+            last_seen_created_at, last_seen_log_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "acct",
+            "gw",
+            "sync",
+            "2026-07-01T00:00:00Z",
+            "unknown",
+            "bad",
+            "2026-07-01T00:00:00Z",
+        ),
+    )
+    seen_queries: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_queries.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "result_info": {"total_count": 1},
+                "result": [{"id": "valid", "created_at": "2026-07-01T08:00:00+08:00"}],
+            },
+        )
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        with pytest.raises(ValueError, match="invalid incremental checkpoint"):
+            await engine.sync_logs("acct", "gw", LogFilters(per_page=2), incremental=True)
+        assert seen_queries == []
+
+        result = await engine.sync_logs("acct", "gw", LogFilters(per_page=2))
+
+    assert result.logs_count == 1
+    assert len(seen_queries) == 1
+    state = db.sync_state.get("acct", "gw", "sync")
+    assert state is not None
+    assert state["last_seen_created_at"] == "2026-07-01T00:00:00Z"
+    assert state["last_seen_log_id"] == "valid"
+
+
+@pytest.mark.asyncio
+async def test_incremental_sync_rejects_limit(db: AnalyzerDatabase) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("unsafe incremental+limit must fail before calling upstream")
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        with pytest.raises(ValueError, match="cannot be combined with limit"):
+            await engine.sync_logs(
+                "acct",
+                "gw",
+                LogFilters(per_page=2),
+                incremental=True,
+                limit=10,
+            )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "filter_overrides",
+    [
+        pytest.param({"page": 2}, id="page"),
+        pytest.param({"model": "gpt-4o"}, id="model"),
+        pytest.param({"provider": "openai"}, id="provider"),
+        pytest.param({"model_type": "chat"}, id="model-type"),
+        pytest.param({"search": "needle"}, id="search"),
+        pytest.param({"cached": False}, id="cached-false"),
+        pytest.param({"success": False}, id="success-false"),
+        pytest.param({"feedback": 0}, id="feedback-zero"),
+        pytest.param({"min_cost": 0.0}, id="min-cost-zero"),
+        pytest.param({"max_cost": 1.0}, id="max-cost"),
+        pytest.param({"min_duration": 0.0}, id="min-duration-zero"),
+        pytest.param({"max_duration": 1.0}, id="max-duration"),
+        pytest.param({"min_tokens_in": 0}, id="min-tokens-in-zero"),
+        pytest.param({"max_tokens_in": 1}, id="max-tokens-in"),
+        pytest.param({"min_tokens_out": 0}, id="min-tokens-out-zero"),
+        pytest.param({"max_tokens_out": 1}, id="max-tokens-out"),
+        pytest.param({"min_total_tokens": 0}, id="min-total-tokens-zero"),
+        pytest.param({"max_total_tokens": 1}, id="max-total-tokens"),
+    ],
+)
+async def test_incremental_sync_rejects_result_narrowing_filters(
+    db: AnalyzerDatabase,
+    filter_overrides: dict[str, object],
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("filtered incremental sync must fail before calling upstream")
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        with pytest.raises(ValueError, match="cannot be combined with result filters"):
+            await engine.sync_logs(
+                "acct",
+                "gw",
+                LogFilters(per_page=7, meta_info=True, **filter_overrides),
+                incremental=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_incremental_sync_allows_page_size_and_meta_info(db: AnalyzerDatabase) -> None:
+    seen_queries: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_queries.append(dict(request.url.params))
+        return httpx.Response(
+            200, json={"success": True, "result_info": {"total_count": 0}, "result": []}
+        )
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        await engine.sync_logs(
+            "acct",
+            "gw",
+            LogFilters(page=1, per_page=7, meta_info=True),
+            incremental=True,
+        )
+
+    assert seen_queries == [
+        {
+            "page": "1",
+            "per_page": "7",
+            "order_by": "created_at",
+            "order_by_direction": "asc",
+            "meta_info": "true",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_incremental_sync_rejects_unsafe_order(db: AnalyzerDatabase) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("unsafe incremental ordering must fail before calling upstream")
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        with pytest.raises(ValueError, match="created_at ascending"):
+            await engine.sync_logs(
+                "acct",
+                "gw",
+                LogFilters(per_page=2, order_by="created_at", direction="desc"),
+                incremental=True,
+            )
 
 
 @pytest.mark.asyncio
@@ -192,6 +438,97 @@ async def test_sync_usage_records_run_even_when_no_targets(db: AnalyzerDatabase)
     assert result.run_id is not None
     runs = db.sync_runs.list_recent("acct", "gw")
     assert runs and runs[0]["mode"] == "sync-usage"
+
+
+@pytest.mark.asyncio
+async def test_sync_usage_uses_config_retry_failed_default(db: AnalyzerDatabase) -> None:
+    db.logs.upsert_many("acct", "gw", [{"id": "failed"}, {"id": "missing"}])
+    db.logs.upsert_usage("acct", "gw", "failed", UsageFields(), FetchStatus.FAILED, 500, "boom")
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url.path)
+        return httpx.Response(200, json={"usage": {"input_tokens": 1, "output_tokens": 1}})
+
+    settings = _make_settings(
+        sync=SyncConfig(
+            per_page=2,
+            log_throttle_ms=0,
+            usage_workers=2,
+            usage_batch_size=1,
+            retry_failed=False,
+        )
+    )
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        result = await engine.sync_usage("acct", "gw")
+
+    assert result.targets == 1
+    assert requested == ["/client/v4/accounts/acct/ai-gateway/gateways/gw/logs/missing/response"]
+
+
+@pytest.mark.asyncio
+async def test_sync_usage_retries_previous_run_failure_started_in_same_second(
+    db: AnalyzerDatabase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [{"id": "failed", "created_at": "2026-07-01T00:00:00Z"}],
+    )
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.core.sync_engine.utc_now",
+        lambda: "2026-07-01T12:00:00Z",
+    )
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.data.repository.events.utc_now",
+        lambda: "2026-07-01T12:00:00Z",
+    )
+    precise_times = iter(
+        [
+            "2026-07-01T12:00:00.000100Z",
+            "2026-07-01T12:00:00.000200Z",
+            "2026-07-01T12:00:00.000300Z",
+            "2026-07-01T12:00:00.000400Z",
+        ]
+    )
+
+    def precise_now() -> str:
+        return next(precise_times)
+
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.core.sync_engine.utc_now_precise",
+        precise_now,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.data.repository.events.utc_now_precise",
+        precise_now,
+        raising=False,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"success": False, "errors": [{"message": "boom"}]})
+
+    settings = _make_settings(
+        sync=SyncConfig(
+            per_page=2,
+            log_throttle_ms=0,
+            usage_workers=1,
+            usage_batch_size=1,
+            retry_failed=True,
+        )
+    )
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        first = await engine.sync_usage("acct", "gw", retry_failed=True)
+        second = await engine.sync_usage("acct", "gw", retry_failed=True)
+
+    assert first.targets == 1
+    assert first.failed == 1
+    assert second.targets == 1
+    assert second.failed == 1
 
 
 @pytest.mark.asyncio

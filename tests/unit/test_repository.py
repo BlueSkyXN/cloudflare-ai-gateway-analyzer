@@ -102,6 +102,35 @@ def test_gateway_raw_json_uses_gateway_sanitizer(db: AnalyzerDatabase) -> None:
     assert payload["stripe"]["authorization"] == "<redacted>"
 
 
+def test_gateway_raw_json_does_not_persist_secret_key_aliases(db: AnalyzerDatabase) -> None:
+    secret_values = {
+        "secretKey": "MARKER-secret-key",
+        "privateKey": "MARKER-private-key",
+        "IDToken": "MARKER-id-token",
+        "APIToken": "MARKER-api-token",
+        "AuthorizationHeader": "MARKER-authorization-header",
+        "secretAccessKey": "MARKER-secret-access-key",
+        "AWSSecretAccessKey": "MARKER-aws-secret-access-key",
+    }
+    db.gateways.upsert_many(
+        "acct",
+        [
+            {
+                "id": "open",
+                "nested": secret_values,
+            }
+        ],
+    )
+
+    row = db.conn.execute("SELECT raw_json FROM gateways WHERE gateway_id='open'").fetchone()
+    raw_json = row["raw_json"]
+    payload = json.loads(raw_json)
+
+    assert payload["nested"] == dict.fromkeys(secret_values, "<redacted>")
+    for marker in secret_values.values():
+        assert marker not in raw_json
+
+
 # ---- log_events upsert (raw_json split + metrics) -----------------------------
 
 
@@ -167,6 +196,162 @@ def test_usage_targets_missing_only_skips_parsed_usage(db: AnalyzerDatabase) -> 
         None,
     )
     assert db.logs.usage_targets("acct", "gw", missing_only=True) == []
+
+
+def test_usage_targets_missing_only_excludes_failed(db: AnalyzerDatabase) -> None:
+    db.logs.upsert_many("acct", "gw", [_sample_log("failed"), _sample_log("missing")])
+    db.logs.upsert_usage("acct", "gw", "failed", UsageFields(), FetchStatus.FAILED, 500, "boom")
+
+    assert db.logs.usage_targets("acct", "gw", missing_only=True, retry_failed=True) == ["missing"]
+
+
+def test_usage_target_batches_are_bounded_and_prioritize_missing(
+    db: AnalyzerDatabase,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log("failed-1"),
+            _sample_log("missing-1"),
+            _sample_log("failed-2"),
+            _sample_log("missing-2"),
+        ],
+    )
+    for log_id in ("failed-1", "failed-2"):
+        db.logs.upsert_usage("acct", "gw", log_id, UsageFields(), FetchStatus.FAILED, 500, "boom")
+
+    batches = list(
+        db.logs.iter_usage_target_batches(
+            "acct",
+            "gw",
+            retry_failed=True,
+            batch_size=1,
+            failed_before="9999-12-31T23:59:59Z",
+        )
+    )
+    flattened = [log_id for batch in batches for log_id in batch]
+
+    assert all(len(batch) <= 1 for batch in batches)
+    assert set(flattened[:2]) == {"missing-1", "missing-2"}
+    assert set(flattened[2:]) == {"failed-1", "failed-2"}
+
+
+def test_usage_target_batches_limit_keeps_newest_logs_first(
+    db: AnalyzerDatabase,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log("newest", created_at="2026-05-22T03:00:00Z"),
+            _sample_log("middle", created_at="2026-05-22T02:00:00Z"),
+            _sample_log("oldest", created_at="2026-05-22T01:00:00Z"),
+        ],
+    )
+
+    batches = list(
+        db.logs.iter_usage_target_batches(
+            "acct",
+            "gw",
+            batch_size=1,
+            limit=2,
+        )
+    )
+
+    assert batches == [["newest"], ["middle"]]
+
+
+def test_usage_target_order_uses_real_time_for_mixed_precision(
+    db: AnalyzerDatabase,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log("whole-second", created_at="2026-07-01T00:00:00Z"),
+            _sample_log("fractional-second", created_at="2026-07-01T00:00:00.500Z"),
+        ],
+    )
+
+    batches = list(
+        db.logs.iter_usage_target_batches(
+            "acct",
+            "gw",
+            batch_size=1,
+        )
+    )
+    expected = ["fractional-second", "whole-second"]
+
+    assert [log_id for batch in batches for log_id in batch] == expected
+    assert db.logs.usage_targets("acct", "gw") == expected
+    assert list(db.logs.iter_usage_target_batches("acct", "gw", batch_size=1, limit=1)) == [
+        ["fractional-second"]
+    ]
+    assert db.logs.usage_targets("acct", "gw", limit=1) == ["fractional-second"]
+
+
+def test_usage_target_order_uses_real_time_for_timezone_offsets(
+    db: AnalyzerDatabase,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log("offset-midnight", created_at="2026-07-01T08:00:00+08:00"),
+            _sample_log("utc-midnight", created_at="2026-07-01T00:00:00Z"),
+            _sample_log("utc-one-am", created_at="2026-07-01T01:00:00Z"),
+        ],
+    )
+
+    batches = list(
+        db.logs.iter_usage_target_batches(
+            "acct",
+            "gw",
+            batch_size=1,
+        )
+    )
+    expected = ["utc-one-am", "utc-midnight", "offset-midnight"]
+
+    assert [log_id for batch in batches for log_id in batch] == expected
+    assert db.logs.usage_targets("acct", "gw") == expected
+
+
+def test_usage_target_batches_handle_equal_and_null_created_at(
+    db: AnalyzerDatabase,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log("same-b", created_at="2026-05-22T01:00:00Z"),
+            _sample_log("null-b", created_at=None),
+            _sample_log("same-c", created_at="2026-05-22T01:00:00Z"),
+            _sample_log("invalid-z", created_at="not-a-timestamp"),
+            _sample_log("null-a", created_at=None),
+            _sample_log("same-a", created_at="2026-05-22T01:00:00Z"),
+        ],
+    )
+
+    batches = list(
+        db.logs.iter_usage_target_batches(
+            "acct",
+            "gw",
+            batch_size=1,
+        )
+    )
+
+    expected = [
+        ["same-c"],
+        ["same-b"],
+        ["same-a"],
+        ["null-b"],
+        ["null-a"],
+        ["invalid-z"],
+    ]
+
+    assert batches == expected
+    assert db.logs.usage_targets("acct", "gw") == [batch[0] for batch in expected]
 
 
 # ---- query --------------------------------------------------------------------
@@ -250,6 +435,42 @@ def test_upsert_usage_fills_tokens_and_metrics(db: AnalyzerDatabase) -> None:
     assert pytest.approx(row["ms_per_output_token"], rel=1e-3) == 100.0
     assert row["visible_output_tokens"] == 14
     assert pytest.approx(row["visible_output_tps"], rel=1e-3) == 14 / 2.1
+
+
+def test_metadata_refresh_recomputes_metrics_from_parsed_usage(db: AnalyzerDatabase) -> None:
+    db.logs.upsert_many("acct", "gw", [_sample_log("a")])
+    db.logs.upsert_usage(
+        "acct",
+        "gw",
+        "a",
+        UsageFields(input_tokens=100, output_tokens=20, total_tokens=120, reasoning_tokens=5),
+        FetchStatus.PARSED,
+        200,
+        None,
+    )
+
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log(
+                "a",
+                tokens_in=1,
+                tokens_out=1,
+                timings={"total": 3000.0, "latency": 800.0},
+            )
+        ],
+    )
+
+    row = db.conn.execute("SELECT * FROM log_events WHERE log_id='a'").fetchone()
+    assert row["input_tokens"] == 100
+    assert row["output_tokens"] == 20
+    assert row["latency_ms"] == 800.0
+    assert row["generation_ms"] == 2200.0
+    assert row["input_tps"] == pytest.approx(125.0)
+    assert row["output_tps"] == pytest.approx(20 / 2.2)
+    assert row["visible_output_tokens"] == 15
+    assert row["visible_output_tps"] == pytest.approx(15 / 2.2)
 
 
 # ---- summary ------------------------------------------------------------------

@@ -6,10 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Fixed
+
+- Made incremental sync force `created_at ASC` and reject `--limit`, explicit date windows, incompatible ordering, or result-narrowing filters so an incomplete result set cannot silently advance the shared checkpoint past unseen logs.
+- Made usage backfill process bounded `usage_batch_size` batches, prioritize never-fetched rows, keep newest logs first within each status phase, honor `missing_only`, use `sync.retry_failed` as the default retry policy, and support explicit per-run enable/disable overrides.
+- Made failed-usage retry cutoffs use microsecond-precision attempt timestamps so a failure from a completed run can be retried even when the next run starts in the same second, without retrying a failure twice in one run.
+- Made incremental checkpoints advance only from successfully persisted rows, ignore invalid log `created_at` values, compare parsed instants, write new markers in UTC, and reject an invalid historical checkpoint before sending it upstream.
+- Recomputed TPS and visible-output metrics when refreshed metadata changes timing fields after usage has already been parsed.
+- Switched latency percentiles to nearest-rank semantics and compute P95 for every model in one window query instead of the previous top-25 N+1 query loop.
+- Excluded invalid or missing timestamps from time-series buckets instead of emitting a null bucket that violates the API schema.
+
+### Security
+
+- Changed log raw-JSON sanitization from a body-field deny-list to a fail-closed allow-list of analytics-safe scalar fields and timing values.
+- Expanded gateway secret-key normalization to cover camelCase/acronym forms and common token, credential, header, cookie, password, private-key, and secret-key aliases.
+
 ### Changed
 
-- Simplified SQLite schema to version 6 with `log_events` as the single analytics fact table and `log_raw` as the sanitized raw JSON side table.
+- Simplified SQLite schema to version 7 with `log_events` as the single analytics fact table and `log_raw` as the sanitized raw JSON side table.
 - Added `input_tps` as a separate input-side throughput metric while keeping `output_tps` for generation throughput.
+- Labeled `input_tps` as an estimated input-TPS proxy in the panel because it divides input tokens by first-byte latency rather than measuring provider prefill throughput directly.
 - Replaced the split frontend analytics contract with one `GET /api/v1/analytics` response containing `summary`, `timeseries`, `by_provider`, `by_model`, `events`, and `filter_options`.
 - Updated CLI `query` and `status` outputs to read wide-table usage, timing, TPS, and usage status fields from `log_events`.
 - Frontend analytics pages now share the unified analytics hook and display `provider` as “渠道”.
@@ -23,6 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 - Schema v5 performs a destructive reset of old analyzer tables. Existing local SQLite analytics data is not migrated; re-sync from Cloudflare.
 - Schema v6 preserves v5 rows and backfills `input_tps` from `input_tokens` and `latency_ms`.
+- Schema v7 preserves v6 rows and adds expression indexes for `julianday(created_at)` filters.
 
 ## [0.3.0a0] — 2026-05-23
 

@@ -44,7 +44,7 @@ def _filters(
 
 
 @router.get("/analytics", response_model=AnalyticsResponse)
-async def analytics(
+def analytics(
     filters: AnalyticsFilters = Depends(_filters),
     limit: int = Query(default=500, ge=1, le=5000),
     conn=Depends(readonly_conn),

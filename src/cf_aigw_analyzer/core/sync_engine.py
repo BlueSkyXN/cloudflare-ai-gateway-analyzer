@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
+from itertools import chain
 from typing import Any
 
 import httpx
@@ -18,7 +18,7 @@ from cf_aigw_analyzer.core.usage_parser import parse_usage_from_response
 from cf_aigw_analyzer.data.db import AnalyzerDatabase, transaction
 from cf_aigw_analyzer.data.models import UsageFields
 from cf_aigw_analyzer.models.enums import FetchStatus
-from cf_aigw_analyzer.utils.time import utc_now
+from cf_aigw_analyzer.utils.time import utc_now, utc_now_precise
 
 
 @dataclass(slots=True)
@@ -86,6 +86,8 @@ class SyncEngine:
         limit: int | None = None,
         incremental: bool = False,
     ) -> SyncMetadataResult:
+        if incremental and limit is not None:
+            raise ValueError("incremental sync cannot be combined with limit")
         owner = _lock_owner()
         self.db.sync_locks.acquire(account_id, gateway_id, "sync", owner)
         started_at = utc_now()
@@ -99,6 +101,24 @@ class SyncEngine:
             latest_created_at: str | None = None
             latest_log_id: str | None = None
 
+            def flush_batch() -> None:
+                nonlocal logs_count, latest_created_at, latest_log_id
+                if not batch:
+                    return
+                persisted_count = self.db.logs.upsert_many(account_id, gateway_id, batch)
+                if persisted_count != len(batch):
+                    raise RuntimeError(
+                        "log persistence count mismatch; refusing to advance sync checkpoint"
+                    )
+                for persisted_log in batch:
+                    latest_created_at, latest_log_id = _choose_latest_seen(
+                        latest_created_at,
+                        latest_log_id,
+                        persisted_log,
+                    )
+                logs_count += persisted_count
+                batch.clear()
+
             async for log in self.client.iter_logs(
                 account_id,
                 gateway_id,
@@ -106,16 +126,13 @@ class SyncEngine:
                 limit=limit,
                 throttle_ms=self.settings.sync.log_throttle_ms,
             ):
+                if _persistable_log_id(log) is None:
+                    continue
                 batch.append(log)
-                latest_created_at, latest_log_id = _choose_latest_seen(
-                    latest_created_at, latest_log_id, log
-                )
                 if len(batch) >= flush_size:
-                    logs_count += self.db.logs.upsert_many(account_id, gateway_id, batch)
-                    batch.clear()
+                    flush_batch()
 
-            if batch:
-                logs_count += self.db.logs.upsert_many(account_id, gateway_id, batch)
+            flush_batch()
 
             self.db.sync_state.record_success(
                 account_id,
@@ -153,23 +170,33 @@ class SyncEngine:
         *,
         missing_only: bool = False,
         refresh: bool = False,
-        retry_failed: bool = True,
+        retry_failed: bool | None = None,
         workers: int | None = None,
         limit: int | None = None,
     ) -> SyncUsageResult:
         owner = _lock_owner()
         self.db.sync_locks.acquire(account_id, gateway_id, "sync-usage", owner)
         started_at = utc_now()
+        failed_before = utc_now_precise()
         try:
-            targets = self.db.logs.usage_targets(
+            effective_retry_failed = (
+                self.settings.sync.retry_failed if retry_failed is None else retry_failed
+            )
+            worker_count = workers if workers is not None else self.settings.sync.usage_workers
+            worker_count = min(64, max(1, worker_count))
+            batch_size = self.settings.sync.usage_batch_size
+            batches = self.db.logs.iter_usage_target_batches(
                 account_id,
                 gateway_id,
                 missing_only=missing_only,
                 refresh=refresh,
-                retry_failed=retry_failed,
+                retry_failed=effective_retry_failed,
+                batch_size=batch_size,
                 limit=limit,
+                failed_before=failed_before,
             )
-            if not targets:
+            first_batch = next(batches, None)
+            if not first_batch:
                 self.db.sync_state.record_success(account_id, gateway_id, "sync-usage")
                 run_id = self.db.sync_runs.record(
                     account_id,
@@ -178,7 +205,9 @@ class SyncEngine:
                     params={
                         "missing_only": missing_only,
                         "refresh": refresh,
-                        "retry_failed": retry_failed,
+                        "retry_failed": effective_retry_failed,
+                        "workers": worker_count,
+                        "batch_size": batch_size,
                         "limit": limit,
                     },
                     started_at=started_at,
@@ -187,10 +216,9 @@ class SyncEngine:
                     targets=0, started_at=started_at, finished_at=utc_now(), run_id=run_id
                 )
 
-            worker_count = workers if workers is not None else self.settings.sync.usage_workers
-            semaphore = asyncio.Semaphore(max(1, worker_count))
+            semaphore = asyncio.Semaphore(worker_count)
             errors: list[str] = []
-            counters = SyncUsageResult(targets=len(targets), started_at=started_at)
+            counters = SyncUsageResult(started_at=started_at)
 
             async def process(log_id: str) -> None:
                 """Fetch + parse + persist one log's usage.
@@ -250,12 +278,13 @@ class SyncEngine:
                             )
 
             try:
-                await asyncio.gather(
-                    *(process(log_id) for log_id in targets),
-                    return_exceptions=False,
-                )
+                for targets in chain((first_batch,), batches):
+                    counters.targets += len(targets)
+                    await asyncio.gather(
+                        *(process(log_id) for log_id in targets),
+                        return_exceptions=False,
+                    )
             finally:
-                self.db.sync_state.record_success(account_id, gateway_id, "sync-usage")
                 counters.errors = errors
                 counters.finished_at = utc_now()
                 counters.run_id = self.db.sync_runs.record(
@@ -265,8 +294,9 @@ class SyncEngine:
                     params={
                         "missing_only": missing_only,
                         "refresh": refresh,
-                        "retry_failed": retry_failed,
+                        "retry_failed": effective_retry_failed,
                         "workers": worker_count,
+                        "batch_size": batch_size,
                         "limit": limit,
                     },
                     usage_fetched=counters.fetched,
@@ -275,6 +305,7 @@ class SyncEngine:
                     usage_failed=counters.failed,
                     started_at=started_at,
                 )
+            self.db.sync_state.record_success(account_id, gateway_id, "sync-usage")
             return counters
         finally:
             self.db.sync_locks.release(account_id, gateway_id, "sync-usage", owner)
@@ -290,14 +321,44 @@ class SyncEngine:
             return filters
         if filters.start_date or filters.end_date:
             raise ValueError("incremental sync cannot be combined with explicit start/end dates")
+        if filters.order_by not in (None, "created_at") or (
+            filters.direction is not None and filters.direction.lower() != "asc"
+        ):
+            raise ValueError("incremental sync requires created_at ascending order")
+        safe_query_fields = {
+            "page",
+            "per_page",
+            "order_by",
+            "order_by_direction",
+            "start_date",
+            "end_date",
+            "meta_info",
+        }
+        result_filters = sorted(set(filters.to_query()) - safe_query_fields)
+        if filters.page != 1:
+            result_filters.insert(0, "page")
+        if result_filters:
+            raise ValueError(
+                "incremental sync cannot be combined with result filters: "
+                + ", ".join(result_filters)
+            )
+        effective_filters = replace(filters, order_by="created_at", direction="asc")
         state = self.db.sync_state.get(account_id, gateway_id, "sync")
         if not state or not state.get("last_seen_created_at"):
-            return filters
+            return effective_filters
+        checkpoint = str(state["last_seen_created_at"])
+        normalized_checkpoint = _normalize_checkpoint_time(checkpoint)
+        if normalized_checkpoint is None:
+            raise ValueError(
+                "invalid incremental checkpoint "
+                f"for {account_id}/{gateway_id}: last_seen_created_at={checkpoint!r}; "
+                "run a non-incremental sync to repair it"
+            )
         start_date = _minus_minutes(
-            str(state["last_seen_created_at"]),
+            normalized_checkpoint,
             self.settings.sync.incremental_overlap_minutes,
         )
-        return replace(filters, start_date=start_date)
+        return replace(effective_filters, start_date=start_date)
 
     async def _fetch_usage_payload(
         self,
@@ -351,19 +412,6 @@ class SyncEngine:
             )
 
 
-def chunk(iterable: Iterable[Any], size: int) -> Iterable[list[Any]]:
-    """Yield ``iterable`` in fixed-size lists (used for batched persistence)."""
-
-    batch: list[Any] = []
-    for item in iterable:
-        batch.append(item)
-        if len(batch) >= size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
-
-
 def _lock_owner() -> str:
     return f"sync-engine:{uuid.uuid4().hex}"
 
@@ -374,22 +422,59 @@ def _choose_latest_seen(
     log: dict[str, Any],
 ) -> tuple[str | None, str | None]:
     created_at = log.get("created_at")
+    log_id = _persistable_log_id(log)
+    candidate_time = _parse_checkpoint_time(created_at)
+    latest_time = _parse_checkpoint_time(latest_created_at)
+    if log_id is None:
+        if latest_time is None:
+            return None, None
+        return _format_checkpoint_time(latest_time), latest_log_id
+    if candidate_time is None:
+        if latest_time is None:
+            return None, None
+        return _format_checkpoint_time(latest_time), latest_log_id
+    if latest_time is None or candidate_time > latest_time:
+        return (
+            _format_checkpoint_time(candidate_time),
+            log_id,
+        )
+    if candidate_time == latest_time:
+        latest_log_id = max(latest_log_id or "", log_id)
+    return _format_checkpoint_time(latest_time), latest_log_id
+
+
+def _persistable_log_id(log: dict[str, Any]) -> str | None:
     log_id = log.get("id") or log.get("log_id")
-    if not isinstance(created_at, str) or not created_at:
-        return latest_created_at, latest_log_id
-    if latest_created_at is None or created_at > latest_created_at:
-        return created_at, str(log_id) if log_id is not None else latest_log_id
-    if created_at == latest_created_at and log_id is not None:
-        latest_log_id = max(latest_log_id or "", str(log_id))
-    return latest_created_at, latest_log_id
+    return str(log_id) if log_id else None
+
+
+def _parse_checkpoint_time(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    cleaned = value.strip()
+    if cleaned.endswith("Z"):
+        cleaned = f"{cleaned[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(cleaned)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
+        return None
+
+
+def _format_checkpoint_time(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _normalize_checkpoint_time(value: str) -> str | None:
+    parsed = _parse_checkpoint_time(value)
+    return _format_checkpoint_time(parsed) if parsed is not None else None
 
 
 def _minus_minutes(value: str, minutes: int) -> str:
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return value
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    shifted = parsed.astimezone(timezone.utc) - timedelta(minutes=max(0, minutes))
-    return shifted.strftime("%Y-%m-%dT%H:%M:%SZ")
+    parsed = _parse_checkpoint_time(value)
+    if parsed is None:
+        raise ValueError(f"invalid checkpoint timestamp: {value!r}")
+    shifted = parsed - timedelta(minutes=max(0, minutes))
+    return _format_checkpoint_time(shifted)

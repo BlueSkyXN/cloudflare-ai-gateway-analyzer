@@ -15,11 +15,16 @@ def test_removes_body_keys_recursively() -> None:
         "model": "gpt-test",
         "request": {"messages": ["hello"]},
         "response": "secret",
+        "requestBody": "secret",
+        "payload": {"conversation": "secret"},
+        "metadata": '{"messages":["secret"]}',
         "_request_content": "raw",
-        "metadata": {
-            "Messages": ["nested-secret"],
-            "preserved": "ok",
-            "Body": "drop",
+        "timings": {
+            "total": 1000,
+            "latency": 100,
+            "generation": "not-a-number",
+            "message": "drop",
+            "unknown": "drop",
         },
     }
     cleaned = sanitize_log_metadata(payload)
@@ -27,7 +32,7 @@ def test_removes_body_keys_recursively() -> None:
     assert cleaned == {
         "id": "log-1",
         "model": "gpt-test",
-        "metadata": {"preserved": "ok"},
+        "timings": {"total": 1000, "latency": 100},
     }
 
 
@@ -39,7 +44,7 @@ def test_lists_are_walked() -> None:
         ]
     }
     cleaned = sanitize_log_metadata(payload)
-    assert cleaned == {"events": [{"type": "info"}, {"type": "error", "details": {}}]}
+    assert cleaned == {}
 
 
 def test_non_dict_passes_through() -> None:
@@ -68,6 +73,11 @@ def test_gateway_metadata_redacts_secrets_but_keeps_policy_shape() -> None:
             }
         ],
         "stripe": {"authorization": "stripe-secret", "usage_events": [{"payload": "usage"}]},
+        "oauth": {
+            "clientSecret": "secret",
+            "access_token": "secret",
+            "credentials": {"username": "user", "password": "secret"},
+        },
         "logpush_public_key": "public",
     }
 
@@ -87,5 +97,31 @@ def test_gateway_metadata_redacts_secrets_but_keeps_policy_shape() -> None:
             }
         ],
         "stripe": {"authorization": REDACTED, "usage_events": [{"payload": "usage"}]},
+        "oauth": {
+            "clientSecret": REDACTED,
+            "access_token": REDACTED,
+            "credentials": REDACTED,
+        },
         "logpush_public_key": "public",
+    }
+
+
+def test_gateway_metadata_redacts_secret_key_aliases() -> None:
+    secret_keys = (
+        "secretKey",
+        "privateKey",
+        "IDToken",
+        "APIToken",
+        "AuthorizationHeader",
+        "secretAccessKey",
+        "AWSSecretAccessKey",
+    )
+    payload = {
+        "nested": {key: f"MARKER-{key}" for key in secret_keys},
+    }
+
+    cleaned = sanitize_gateway_metadata(payload)
+
+    assert cleaned == {
+        "nested": dict.fromkeys(secret_keys, REDACTED),
     }

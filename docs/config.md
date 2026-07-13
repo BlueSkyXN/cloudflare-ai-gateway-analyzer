@@ -62,11 +62,17 @@ sync:
 ```
 
 `usage_workers` is bounded `[1, 64]` so a misconfigured value cannot DoS Cloudflare.
+`usage_batch_size` is bounded `[1, 500]` and caps the number of usage-target
+coroutines materialized at once. Missing targets are processed before retryable
+failed targets. `retry_failed` is the default policy when a run omits an
+override; CLI callers can use `--retry-failed` / `--no-retry-failed`, and API
+callers can set `retry_failed` to `true` or `false`.
 `incremental_overlap_minutes` is used by `sync --incremental` and the
 `/api/v1/sync/logs` `incremental=true` body flag. It rewinds the stored
 `sync_state.last_seen_created_at` by a small window so repeated agent/cron runs
 prefer overlap over missed late-arriving rows; SQLite primary keys absorb the
-overlap.
+overlap. Incremental mode requires a complete, ascending result set and rejects
+explicit limits or date windows.
 
 ### `control`
 

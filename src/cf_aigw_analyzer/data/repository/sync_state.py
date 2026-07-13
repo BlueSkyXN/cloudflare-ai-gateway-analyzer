@@ -46,20 +46,31 @@ class SyncStateRepository:
                 last_seen_created_at=CASE
                     WHEN excluded.last_seen_created_at IS NULL
                         THEN sync_state.last_seen_created_at
+                    WHEN julianday(excluded.last_seen_created_at) IS NULL
+                        THEN sync_state.last_seen_created_at
                     WHEN sync_state.last_seen_created_at IS NULL
                         THEN excluded.last_seen_created_at
-                    WHEN excluded.last_seen_created_at > sync_state.last_seen_created_at
+                    WHEN julianday(sync_state.last_seen_created_at) IS NULL
+                        THEN excluded.last_seen_created_at
+                    WHEN julianday(excluded.last_seen_created_at)
+                            > julianday(sync_state.last_seen_created_at)
                         THEN excluded.last_seen_created_at
                     ELSE sync_state.last_seen_created_at
                 END,
                 last_seen_log_id=CASE
                     WHEN excluded.last_seen_created_at IS NULL
                         THEN sync_state.last_seen_log_id
+                    WHEN julianday(excluded.last_seen_created_at) IS NULL
+                        THEN sync_state.last_seen_log_id
                     WHEN sync_state.last_seen_created_at IS NULL
                         THEN excluded.last_seen_log_id
-                    WHEN excluded.last_seen_created_at > sync_state.last_seen_created_at
+                    WHEN julianday(sync_state.last_seen_created_at) IS NULL
                         THEN excluded.last_seen_log_id
-                    WHEN excluded.last_seen_created_at = sync_state.last_seen_created_at
+                    WHEN julianday(excluded.last_seen_created_at)
+                            > julianday(sync_state.last_seen_created_at)
+                        THEN excluded.last_seen_log_id
+                    WHEN julianday(excluded.last_seen_created_at)
+                            = julianday(sync_state.last_seen_created_at)
                         THEN MAX(
                             COALESCE(sync_state.last_seen_log_id, ''),
                             COALESCE(excluded.last_seen_log_id, '')

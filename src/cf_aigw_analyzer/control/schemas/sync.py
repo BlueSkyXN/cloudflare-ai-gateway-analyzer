@@ -4,10 +4,27 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
-class SyncTriggerRequest(BaseModel):
+class _RetryPolicyRequest(BaseModel):
+    retry_failed: bool | None = None
+    no_retry_failed: bool = Field(default=False, json_schema_extra={"deprecated": True})
+
+    @model_validator(mode="after")
+    def validate_retry_policy(self):
+        if self.retry_failed is not None and self.no_retry_failed:
+            raise ValueError("retry_failed and no_retry_failed cannot be combined")
+        return self
+
+    @property
+    def retry_failed_override(self) -> bool | None:
+        if self.no_retry_failed:
+            return False
+        return self.retry_failed
+
+
+class SyncTriggerRequest(_RetryPolicyRequest):
     account_id: str
     gateway_id: str | None = None
     gateway_name: str | None = None
@@ -15,20 +32,18 @@ class SyncTriggerRequest(BaseModel):
     with_usage: bool = False
     missing_only: bool = False
     refresh_usage: bool = False
-    no_retry_failed: bool = False
     usage_workers: int | None = Field(default=None, ge=1, le=64)
     usage_limit: int | None = Field(default=None, ge=1)
     incremental: bool = False
     filters: dict[str, Any] = Field(default_factory=dict)
 
 
-class SyncUsageTriggerRequest(BaseModel):
+class SyncUsageTriggerRequest(_RetryPolicyRequest):
     account_id: str
     gateway_id: str | None = None
     gateway_name: str | None = None
     missing_only: bool = False
     refresh: bool = False
-    no_retry_failed: bool = False
     workers: int | None = Field(default=None, ge=1, le=64)
     limit: int | None = Field(default=None, ge=1)
 

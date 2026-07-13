@@ -111,7 +111,7 @@ Commands were confirmed from repo config/docs. Prefer `python3`.
 - **Schema/repository change**: read `src/cf_aigw_analyzer/data/AGENTS.md`; run `PYTHONPATH=src python3 -m pytest tests/unit/test_repository.py -v tests/unit/test_analytics.py`.
 - **Migration change**: also verify `PRAGMA user_version`, `migrations` records, and docs/data-model expectations; at minimum run the repository tests covering migration paths.
 - **Parser change**: read `src/cf_aigw_analyzer/core/AGENTS.md`; run `PYTHONPATH=src python3 -m pytest tests/unit/test_usage_parser.py`; add relevant integration coverage when sync behavior changes.
-- **Sanitizer change**: run `PYTHONPATH=src python3 -m pytest tests/unit/test_sanitizer.py`; confirm request/response body deny-list behavior is still enforced.
+- **Sanitizer change**: run `PYTHONPATH=src python3 -m pytest tests/unit/test_sanitizer.py`; confirm the fail-closed log-field allow-list and gateway secret redaction still prevent body/credential persistence.
 - **Sync orchestration change**: run `PYTHONPATH=src python3 -m pytest tests/integration/test_sync_engine.py` plus relevant repository tests.
 - **Config change**: run `PYTHONPATH=src python3 -m pytest tests/unit/test_config_loader.py`; update `config-example.yaml`, `.env.example`, and `docs/config.md` when public config changes.
 - **Route/schema/auth change**: read `src/cf_aigw_analyzer/control/AGENTS.md`; run `PYTHONPATH=src python3 -m pytest tests/integration/test_control.py`, `python3 scripts/generate_openapi.py --output local/openapi.json`, and `python3 scripts/check_api.py`.
