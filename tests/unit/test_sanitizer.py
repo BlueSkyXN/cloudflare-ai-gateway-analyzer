@@ -113,6 +113,8 @@ def test_gateway_metadata_redacts_secret_key_aliases() -> None:
         "IDToken",
         "APIToken",
         "AuthorizationHeader",
+        "secretAccessKey",
+        "AWSSecretAccessKey",
     )
     payload = {
         "nested": {key: f"MARKER-{key}" for key in secret_keys},

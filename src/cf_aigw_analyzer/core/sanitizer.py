@@ -104,6 +104,7 @@ GATEWAY_SECRET_KEYS = frozenset(
         "password",
         "private_key",
         "secret",
+        "secret_access_key",
         "secret_key",
         "set_cookie",
         "token",
@@ -191,6 +192,7 @@ def _is_gateway_secret_key(value: Any) -> bool:
             "_password",
             "_private_key",
             "_secret",
+            "_secret_access_key",
             "_secret_key",
             "_token",
         )

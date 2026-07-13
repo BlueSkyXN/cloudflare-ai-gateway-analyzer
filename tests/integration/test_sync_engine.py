@@ -154,6 +154,53 @@ async def test_sync_logs_checkpoint_ignores_invalid_created_at_and_normalizes_ut
 
 
 @pytest.mark.asyncio
+async def test_sync_logs_checkpoint_only_uses_persisted_rows(db: AnalyzerDatabase) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "result_info": {"total_count": 6},
+                "result": [
+                    {"id": "persisted-a", "created_at": "2026-07-01T00:00:00Z"},
+                    {
+                        "id": None,
+                        "log_id": "persisted-z",
+                        "created_at": "2026-07-01T00:00:00Z",
+                    },
+                    {
+                        "id": "",
+                        "log_id": "persisted-y",
+                        "created_at": "2026-07-01T00:00:00Z",
+                    },
+                    {"created_at": "2099-01-01T00:00:00Z"},
+                    {"id": None, "created_at": "2099-01-02T00:00:00Z"},
+                    {"id": "", "created_at": "2099-01-03T00:00:00Z"},
+                ],
+            },
+        )
+
+    settings = _make_settings()
+    async with _mock_client(handler) as client:
+        engine = SyncEngine(settings, db, client=client)
+        result = await engine.sync_logs("acct", "gw", LogFilters(per_page=10))
+
+    assert result.logs_count == 3
+    stored = db.conn.execute("SELECT log_id FROM log_events ORDER BY log_id").fetchall()
+    assert [row["log_id"] for row in stored] == [
+        "persisted-a",
+        "persisted-y",
+        "persisted-z",
+    ]
+    state = db.sync_state.get("acct", "gw", "sync")
+    assert state is not None
+    assert state["last_seen_created_at"] == "2026-07-01T00:00:00Z"
+    assert state["last_seen_log_id"] == "persisted-z"
+    runs = db.sync_runs.list_recent("acct", "gw")
+    assert runs[0]["logs_count"] == 3
+
+
+@pytest.mark.asyncio
 async def test_invalid_incremental_checkpoint_fails_before_upstream_and_full_sync_repairs_it(
     db: AnalyzerDatabase,
 ) -> None:

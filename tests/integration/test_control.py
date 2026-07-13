@@ -17,6 +17,7 @@ from cf_aigw_analyzer.config.settings import (
 )
 from cf_aigw_analyzer.control.app import build_app
 from cf_aigw_analyzer.control.lifecycle import AppState
+from cf_aigw_analyzer.core.sync_engine import SyncMetadataResult, SyncUsageResult
 from cf_aigw_analyzer.data import UsageFields
 from cf_aigw_analyzer.data.db import AnalyzerDatabase
 from cf_aigw_analyzer.models.enums import FetchStatus
@@ -176,6 +177,92 @@ async def test_sync_triggers_reject_non_positive_limits_and_workers(
 ) -> None:
     response = await client.post(path, json=payload)
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_sync_usage_retry_failed_override_and_conflict_validation(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[bool | None] = []
+
+    async def fake_sync_usage(self, account_id, gateway_id, *, retry_failed=None, **kwargs):
+        seen.append(retry_failed)
+        return SyncUsageResult()
+
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.core.sync_engine.SyncEngine.sync_usage",
+        fake_sync_usage,
+    )
+    response = await client.post(
+        "/api/v1/sync/usage",
+        json={
+            "account_id": "acct",
+            "gateway_id": "gw",
+            "retry_failed": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert seen == [True]
+
+    legacy = await client.post(
+        "/api/v1/sync/usage",
+        json={
+            "account_id": "acct",
+            "gateway_id": "gw",
+            "no_retry_failed": True,
+        },
+    )
+    assert legacy.status_code == 200
+    assert seen == [True, False]
+
+    conflict = await client.post(
+        "/api/v1/sync/usage",
+        json={
+            "account_id": "acct",
+            "gateway_id": "gw",
+            "retry_failed": True,
+            "no_retry_failed": True,
+        },
+    )
+    assert conflict.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_combined_sync_retry_failed_override_is_forwarded(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[bool | None] = []
+
+    async def fake_sync_logs(self, account_id, gateway_id, filters, **kwargs):
+        return SyncMetadataResult()
+
+    async def fake_sync_usage(self, account_id, gateway_id, *, retry_failed=None, **kwargs):
+        seen.append(retry_failed)
+        return SyncUsageResult()
+
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.core.sync_engine.SyncEngine.sync_logs",
+        fake_sync_logs,
+    )
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.core.sync_engine.SyncEngine.sync_usage",
+        fake_sync_usage,
+    )
+    response = await client.post(
+        "/api/v1/sync/logs",
+        json={
+            "account_id": "acct",
+            "gateway_id": "gw",
+            "with_usage": True,
+            "retry_failed": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert seen == [True]
 
 
 @pytest.mark.asyncio

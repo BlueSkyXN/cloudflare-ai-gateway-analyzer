@@ -101,6 +101,24 @@ class SyncEngine:
             latest_created_at: str | None = None
             latest_log_id: str | None = None
 
+            def flush_batch() -> None:
+                nonlocal logs_count, latest_created_at, latest_log_id
+                if not batch:
+                    return
+                persisted_count = self.db.logs.upsert_many(account_id, gateway_id, batch)
+                if persisted_count != len(batch):
+                    raise RuntimeError(
+                        "log persistence count mismatch; refusing to advance sync checkpoint"
+                    )
+                for persisted_log in batch:
+                    latest_created_at, latest_log_id = _choose_latest_seen(
+                        latest_created_at,
+                        latest_log_id,
+                        persisted_log,
+                    )
+                logs_count += persisted_count
+                batch.clear()
+
             async for log in self.client.iter_logs(
                 account_id,
                 gateway_id,
@@ -108,16 +126,13 @@ class SyncEngine:
                 limit=limit,
                 throttle_ms=self.settings.sync.log_throttle_ms,
             ):
+                if _persistable_log_id(log) is None:
+                    continue
                 batch.append(log)
-                latest_created_at, latest_log_id = _choose_latest_seen(
-                    latest_created_at, latest_log_id, log
-                )
                 if len(batch) >= flush_size:
-                    logs_count += self.db.logs.upsert_many(account_id, gateway_id, batch)
-                    batch.clear()
+                    flush_batch()
 
-            if batch:
-                logs_count += self.db.logs.upsert_many(account_id, gateway_id, batch)
+            flush_batch()
 
             self.db.sync_state.record_success(
                 account_id,
@@ -407,9 +422,13 @@ def _choose_latest_seen(
     log: dict[str, Any],
 ) -> tuple[str | None, str | None]:
     created_at = log.get("created_at")
-    log_id = log.get("id") or log.get("log_id")
+    log_id = _persistable_log_id(log)
     candidate_time = _parse_checkpoint_time(created_at)
     latest_time = _parse_checkpoint_time(latest_created_at)
+    if log_id is None:
+        if latest_time is None:
+            return None, None
+        return _format_checkpoint_time(latest_time), latest_log_id
     if candidate_time is None:
         if latest_time is None:
             return None, None
@@ -417,11 +436,16 @@ def _choose_latest_seen(
     if latest_time is None or candidate_time > latest_time:
         return (
             _format_checkpoint_time(candidate_time),
-            str(log_id) if log_id is not None else latest_log_id,
+            log_id,
         )
-    if candidate_time == latest_time and log_id is not None:
-        latest_log_id = max(latest_log_id or "", str(log_id))
+    if candidate_time == latest_time:
+        latest_log_id = max(latest_log_id or "", log_id)
     return _format_checkpoint_time(latest_time), latest_log_id
+
+
+def _persistable_log_id(log: dict[str, Any]) -> str | None:
+    log_id = log.get("id") or log.get("log_id")
+    return str(log_id) if log_id else None
 
 
 def _parse_checkpoint_time(value: Any) -> datetime | None:

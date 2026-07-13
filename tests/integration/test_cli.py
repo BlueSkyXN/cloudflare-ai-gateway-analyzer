@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 from cf_aigw_analyzer.cli import app
 from cf_aigw_analyzer.core.cloudflare import CloudflareClient
 from cf_aigw_analyzer.core.http_client import HttpClient
+from cf_aigw_analyzer.core.sync_engine import SyncMetadataResult, SyncUsageResult
 
 runner = CliRunner()
 
@@ -138,6 +139,83 @@ def test_sync_commands_reject_non_positive_limits(
     result = runner.invoke(app, args)
     assert result.exit_code != 0
     assert expected in (result.stdout + result.output)
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [("--retry-failed", True), ("--no-retry-failed", False)],
+)
+def test_sync_usage_retry_failed_flag_overrides_config(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    flag: str,
+    expected: bool,
+) -> None:
+    monkeypatch.setenv("CF_API_TOKEN", "tok")
+    monkeypatch.setenv("CF_AIGW_SYNC__RETRY_FAILED", "false")
+    seen: list[bool | None] = []
+
+    async def fake_sync_usage(self, account_id, gateway_id, *, retry_failed=None, **kwargs):
+        seen.append(retry_failed)
+        return SyncUsageResult()
+
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.core.sync_engine.SyncEngine.sync_usage",
+        fake_sync_usage,
+    )
+    result = runner.invoke(
+        app,
+        [
+            "sync-usage",
+            "--account-id",
+            "acct",
+            "--gateway-id",
+            "gw",
+            flag,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen == [expected]
+
+
+def test_combined_sync_retry_failed_flag_is_forwarded(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CF_API_TOKEN", "tok")
+    seen: list[bool | None] = []
+
+    async def fake_sync_logs(self, account_id, gateway_id, filters, **kwargs):
+        return SyncMetadataResult()
+
+    async def fake_sync_usage(self, account_id, gateway_id, *, retry_failed=None, **kwargs):
+        seen.append(retry_failed)
+        return SyncUsageResult()
+
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.core.sync_engine.SyncEngine.sync_logs",
+        fake_sync_logs,
+    )
+    monkeypatch.setattr(
+        "cf_aigw_analyzer.core.sync_engine.SyncEngine.sync_usage",
+        fake_sync_usage,
+    )
+    result = runner.invoke(
+        app,
+        [
+            "sync",
+            "--account-id",
+            "acct",
+            "--gateway-id",
+            "gw",
+            "--with-usage",
+            "--retry-failed",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen == [True]
 
 
 def test_accounts_uses_mocked_http(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

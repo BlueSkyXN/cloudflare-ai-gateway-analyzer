@@ -112,7 +112,7 @@ async def _run_sync_logs(
                     gateway,
                     missing_only=payload.missing_only,
                     refresh=payload.refresh_usage,
-                    retry_failed=False if payload.no_retry_failed else None,
+                    retry_failed=payload.retry_failed_override,
                     workers=payload.usage_workers,
                     limit=payload.usage_limit,
                 )
@@ -151,7 +151,7 @@ async def _run_sync_usage(
                 gateway,
                 missing_only=payload.missing_only,
                 refresh=payload.refresh,
-                retry_failed=False if payload.no_retry_failed else None,
+                retry_failed=payload.retry_failed_override,
                 workers=payload.workers,
                 limit=payload.limit,
             )

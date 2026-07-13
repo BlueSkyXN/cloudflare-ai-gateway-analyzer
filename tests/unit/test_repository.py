@@ -109,6 +109,8 @@ def test_gateway_raw_json_does_not_persist_secret_key_aliases(db: AnalyzerDataba
         "IDToken": "MARKER-id-token",
         "APIToken": "MARKER-api-token",
         "AuthorizationHeader": "MARKER-authorization-header",
+        "secretAccessKey": "MARKER-secret-access-key",
+        "AWSSecretAccessKey": "MARKER-aws-secret-access-key",
     }
     db.gateways.upsert_many(
         "acct",
@@ -260,6 +262,61 @@ def test_usage_target_batches_limit_keeps_newest_logs_first(
     assert batches == [["newest"], ["middle"]]
 
 
+def test_usage_target_order_uses_real_time_for_mixed_precision(
+    db: AnalyzerDatabase,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log("whole-second", created_at="2026-07-01T00:00:00Z"),
+            _sample_log("fractional-second", created_at="2026-07-01T00:00:00.500Z"),
+        ],
+    )
+
+    batches = list(
+        db.logs.iter_usage_target_batches(
+            "acct",
+            "gw",
+            batch_size=1,
+        )
+    )
+    expected = ["fractional-second", "whole-second"]
+
+    assert [log_id for batch in batches for log_id in batch] == expected
+    assert db.logs.usage_targets("acct", "gw") == expected
+    assert list(db.logs.iter_usage_target_batches("acct", "gw", batch_size=1, limit=1)) == [
+        ["fractional-second"]
+    ]
+    assert db.logs.usage_targets("acct", "gw", limit=1) == ["fractional-second"]
+
+
+def test_usage_target_order_uses_real_time_for_timezone_offsets(
+    db: AnalyzerDatabase,
+) -> None:
+    db.logs.upsert_many(
+        "acct",
+        "gw",
+        [
+            _sample_log("offset-midnight", created_at="2026-07-01T08:00:00+08:00"),
+            _sample_log("utc-midnight", created_at="2026-07-01T00:00:00Z"),
+            _sample_log("utc-one-am", created_at="2026-07-01T01:00:00Z"),
+        ],
+    )
+
+    batches = list(
+        db.logs.iter_usage_target_batches(
+            "acct",
+            "gw",
+            batch_size=1,
+        )
+    )
+    expected = ["utc-one-am", "utc-midnight", "offset-midnight"]
+
+    assert [log_id for batch in batches for log_id in batch] == expected
+    assert db.logs.usage_targets("acct", "gw") == expected
+
+
 def test_usage_target_batches_handle_equal_and_null_created_at(
     db: AnalyzerDatabase,
 ) -> None:
@@ -270,6 +327,7 @@ def test_usage_target_batches_handle_equal_and_null_created_at(
             _sample_log("same-b", created_at="2026-05-22T01:00:00Z"),
             _sample_log("null-b", created_at=None),
             _sample_log("same-c", created_at="2026-05-22T01:00:00Z"),
+            _sample_log("invalid-z", created_at="not-a-timestamp"),
             _sample_log("null-a", created_at=None),
             _sample_log("same-a", created_at="2026-05-22T01:00:00Z"),
         ],
@@ -283,13 +341,17 @@ def test_usage_target_batches_handle_equal_and_null_created_at(
         )
     )
 
-    assert batches == [
+    expected = [
         ["same-c"],
         ["same-b"],
         ["same-a"],
         ["null-b"],
         ["null-a"],
+        ["invalid-z"],
     ]
+
+    assert batches == expected
+    assert db.logs.usage_targets("acct", "gw") == [batch[0] for batch in expected]
 
 
 # ---- query --------------------------------------------------------------------

@@ -28,7 +28,11 @@ def sync_usage(
     gateway_name: GatewayNameOption = None,
     missing_only: bool = typer.Option(False, "--missing-only"),
     refresh: bool = typer.Option(False, "--refresh"),
-    no_retry_failed: bool = typer.Option(False, "--no-retry-failed"),
+    retry_failed: bool | None = typer.Option(
+        None,
+        "--retry-failed/--no-retry-failed",
+        help="Override sync.retry_failed for this run.",
+    ),
     workers: int | None = typer.Option(None, "--usage-workers", min=1, max=64),
     limit: int | None = typer.Option(None, "--limit", min=1),
 ) -> None:
@@ -50,7 +54,7 @@ def sync_usage(
                     resolved_gateway,
                     missing_only=missing_only,
                     refresh=refresh,
-                    retry_failed=False if no_retry_failed else None,
+                    retry_failed=retry_failed,
                     workers=workers,
                     limit=limit,
                 )
