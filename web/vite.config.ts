@@ -26,5 +26,15 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: false,
     target: "es2020",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("/node_modules/tslib/")) return "tslib";
+          if (id.includes("/node_modules/zrender/")) return "zrender";
+          if (id.includes("/node_modules/echarts/")) return "echarts";
+          return undefined;
+        },
+      },
+    },
   },
 });
