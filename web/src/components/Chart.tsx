@@ -1,4 +1,4 @@
-import { BarChart, LineChart, ScatterChart } from "echarts/charts";
+import { BarChart, LineChart } from "echarts/charts";
 import {
   AxisPointerComponent,
   GridComponent,
@@ -14,7 +14,6 @@ import { useUiPreferences, type ThemeMode } from "@/store/ui";
 use([
   BarChart,
   LineChart,
-  ScatterChart,
   AxisPointerComponent,
   GridComponent,
   LegendComponent,
